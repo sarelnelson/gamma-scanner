@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  gamma-scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.gamma
+    container_name: gamma-scanner
+    ports:
+      - "8081:8081"
+    environment:
+      - ALPACA_API_KEY=${ALPACA_API_KEY:-PKOMKRLONHFRTJIPY3OTSRQYDP}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4}
+      - NTFY_TOPIC=${NTFY_TOPIC:-}
+      - PORT=8081
+      # Set to "true" for real money execution:
+      # - LIVE_EXECUTION=true
+    volumes:
+      # Persist trades data across container restarts
+      - gamma_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  gamma_data:
+    driver: local

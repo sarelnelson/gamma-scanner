@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gamma">
+<meta name="theme-color" content="#0d1117">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<title>Gamma Scanner</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; }
+a { color: #58a6ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.top-bar { padding: 14px 28px; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #21262d; background: #161b22; }
+.top-bar .logo { font-size: 20px; cursor: pointer; }
+.top-bar h1 { font-size: 18px; font-weight: 600; color: #e6edf3; }
+.top-bar .nav { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: 13px; }
+.top-bar .nav .back-link { color: #8b949e; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.status-dot.live { background: #3fb950; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* Summary cards */
+.summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; padding: 20px 28px; }
+.card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 18px; }
+.card .label { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.card .value { font-size: 26px; font-weight: 700; }
+.card .value.green { color: #3fb950; }
+.card .value.red { color: #f85149; }
+.card .value.neutral { color: #8b949e; }
+.card .sub { font-size: 12px; color: #8b949e; margin-top: 4px; }
+
+/* Mode toggle */
+.mode-toggle { display: flex; gap: 0; padding: 0 28px 16px; }
+.mode-btn { padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid #21262d; background: #161b22; color: #8b949e; transition: all 0.2s; }
+.mode-btn:first-child { border-radius: 8px 0 0 8px; }
+.mode-btn:last-child { border-radius: 0 8px 8px 0; }
+.mode-btn:hover { color: #e6edf3; background: #1c2128; }
+.mode-btn.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+
+/* Tables */
+.section { padding: 0 28px 20px; }
+.section-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+.section-title .count { font-size: 12px; background: #21262d; padding: 2px 8px; border-radius: 10px; color: #8b949e; }
+
+.picks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.pick-card { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 16px; transition: border-color 0.2s; }
+.pick-card:hover { border-color: #30363d; }
+.pick-card .header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.pick-card .ticker { font-size: 18px; font-weight: 700; }
+.pick-card .direction { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; }
+.pick-card .direction.call { background: #0d2818; color: #3fb950; }
+.pick-card .direction.put { background: #2d1215; color: #f85149; }
+.pick-card .score-bar { height: 6px; background: #21262d; border-radius: 3px; margin: 8px 0; overflow: hidden; }
+.pick-card .score-bar .fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.pick-card .score-bar .fill.high { background: #3fb950; }
+.pick-card .score-bar .fill.mid { background: #d29922; }
+.pick-card .score-bar .fill.low { background: #f85149; }
+.pick-card .details { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; }
+.pick-card .details .row { display: flex; justify-content: space-between; }
+.pick-card .details .lbl { color: #8b949e; }
+.pick-card .details .val { color: #e6edf3; font-weight: 500; }
+.pick-card .option-info { margin-top: 10px; padding-top: 10px; border-top: 1px solid #21262d; font-size: 12px; }
+.pick-card .option-info .row { display: flex; justify-content: space-between; padding: 2px 0; }
+.pick-card .option-info .lbl { color: #8b949e; }
+.pick-card .option-info .val { color: #e6edf3; }
+
+/* Trades table */
+.trades-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.trades-table th { text-align: left; padding: 10px 12px; color: #8b949e; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid #21262d; }
+.trades-table td { padding: 10px 12px; border-bottom: 1px solid #21262d; }
+.trades-table tr:hover { background: #1c2128; }
+.trades-table .pnl-pos { color: #3fb950; font-weight: 600; }
+.trades-table .pnl-neg { color: #f85149; font-weight: 600; }
+.trades-table .status-open { color: #58a6ff; }
+.trades-table .status-closed { color: #8b949e; }
+
+/* Comparison */
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 0 28px 28px; }
+.comparison .col { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 18px; }
+.comparison .col h3 { font-size: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.comparison .col h3 .tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+.comparison .col h3 .tag.strict { background: #1f1d2e; color: #a371f7; }
+.comparison .col h3 .tag.loose { background: #1d2d1d; color: #7ee787; }
+.comparison .stat-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #21262d; }
+.comparison .stat-row:last-child { border-bottom: none; }
+.comparison .stat-row .lbl { color: #8b949e; }
+.comparison .stat-row .val { font-weight: 600; }
+
+/* Responsive — Mobile */
+@media (max-width: 768px) {
+  .top-bar { padding: 12px 16px; gap: 10px; }
+  .top-bar h1 { font-size: 15px; }
+  .top-bar .nav .back-link { display: none; }
+  
+  .summary-row { grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 16px; }
+  .card { padding: 12px; }
+  .card .value { font-size: 20px; }
+  .card .label { font-size: 10px; }
+  .card .sub { font-size: 10px; }
+  
+  .mode-toggle { padding: 0 16px 12px; }
+  .mode-btn { padding: 8px 12px; font-size: 12px; }
+  
+  .section { padding: 0 16px 16px; }
+  .section-title { font-size: 14px; }
+  
+  .picks-grid { grid-template-columns: 1fr; }
+  .comparison { grid-template-columns: 1fr; }
+  
+  /* Convert tables to cards on mobile */
+  .trades-table { display: block; }
+  .trades-table thead { display: none; }
+  .trades-table tbody { display: flex; flex-direction: column; gap: 10px; }
+  .trades-table tr { 
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 14px;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 10px;
+    border-bottom: none;
+  }
+  .trades-table tr:hover { background: #161b22; }
+  .trades-table td { 
+    padding: 2px 0;
+    border-bottom: none;
+    font-size: 13px;
+  }
+  .trades-table td:first-child { 
+    font-size: 16px;
+    grid-column: 1 / -1;
+    border-bottom: 1px solid #21262d;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+  
+  /* Open trades: make close button full width */
+  .trades-table td:last-child {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding-top: 8px;
+    border-top: 1px solid #21262d;
+    margin-top: 4px;
+  }
+  .trades-table td:last-child button {
+    width: 100%;
+    padding: 8px;
+    font-size: 13px;
+  }
+}
+
+/* Extra small phones */
+@media (max-width: 380px) {
+  .summary-row { grid-template-columns: 1fr; }
+  .card .value { font-size: 18px; }
+  .mode-btn { padding: 6px 8px; font-size: 11px; }
+}
+
+/* Refresh animation */
+.refreshing { opacity: 0.6; transition: opacity 0.3s; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="logo" onclick="window.location='/'">📈</div>
+  <h1>🎯 Gamma Scanner</h1>
+  <div class="nav">
+    <button onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;">💳 Fund</button>
+    <a href="https://ds-l4ximmxa--8080.us-west-2.prod.proxy.devspaces.amazon.dev/" class="back-link">← Main</a>
+    <span style="color:#8b949e;font-size:12px;" id="last-update"></span>
+    <span><span class="status-dot live"></span></span>
+  </div>
+</div>
+
+<!-- Funding Modal -->
+<div id="funding-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:14px;padding:24px;max-width:360px;width:100%;">
+    <h3 style="margin-bottom:16px;font-size:16px;">Manage Funds</h3>
+    <p style="font-size:12px;color:#8b949e;margin-bottom:16px;">Record deposits/withdrawals made through Alpaca. This updates your cost basis for accurate return tracking.</p>
+    
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <button id="fund-deposit-btn" onclick="setFundType('deposit')" style="flex:1;padding:10px;border-radius:8px;border:1px solid #3fb950;background:#0d2818;color:#3fb950;font-weight:600;cursor:pointer;font-size:14px;">Deposit</button>
+      <button id="fund-withdraw-btn" onclick="setFundType('withdraw')" style="flex:1;padding:10px;border-radius:8px;border:1px solid #30363d;background:transparent;color:#8b949e;font-weight:600;cursor:pointer;font-size:14px;">Withdraw</button>
+    </div>
+    
+    <input id="fund-amount" type="number" placeholder="Amount ($)" min="1" step="0.01" style="width:100%;padding:12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:16px;margin-bottom:12px;-webkit-appearance:none;">
+    <input id="fund-note" type="text" placeholder="Note (optional)" style="width:100%;padding:10px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:13px;margin-bottom:16px;">
+    
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeFundingModal()" style="flex:1;padding:12px;border-radius:8px;border:1px solid #30363d;background:transparent;color:#8b949e;font-weight:600;cursor:pointer;font-size:14px;">Cancel</button>
+      <button onclick="submitFunding()" style="flex:1;padding:12px;border-radius:8px;border:none;background:#1f6feb;color:#fff;font-weight:600;cursor:pointer;font-size:14px;">Confirm</button>
+    </div>
+    
+    <div id="fund-result" style="margin-top:12px;font-size:13px;display:none;padding:10px;border-radius:6px;"></div>
+  </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="summary-row" id="summary-cards">
+  <div class="card">
+    <div class="label">Today's Picks</div>
+    <div class="value neutral" id="total-picks">—</div>
+    <div class="sub" id="picks-sub">Loading...</div>
+  </div>
+  <div class="card">
+    <div class="label">Open Trades</div>
+    <div class="value" id="open-trades">—</div>
+    <div class="sub" id="open-pnl-sub">—</div>
+  </div>
+  <div class="card">
+    <div class="label">Today's P&L</div>
+    <div class="value" id="daily-pnl">—</div>
+    <div class="sub" id="daily-pnl-sub">—</div>
+  </div>
+  <div class="card">
+    <div class="label">Realized P&L</div>
+    <div class="value" id="realized-pnl">—</div>
+    <div class="sub" id="pnl-record">—</div>
+  </div>
+  <div class="card">
+    <div class="label">Win Rate</div>
+    <div class="value" id="win-rate">—</div>
+    <div class="sub" id="win-rate-sub">—</div>
+  </div>
+</div>
+
+<!-- Mode Toggle -->
+<div class="mode-toggle">
+  <button class="mode-btn active" onclick="setMode('loose')">🟢 Loose (≥60)</button>
+  <button class="mode-btn" onclick="setMode('strict')">🔒 Strict (≥80)</button>
+  <button class="mode-btn" onclick="setMode('both')">⚖️ Compare</button>
+</div>
+
+<!-- Picks Section -->
+<div class="section" id="picks-section">
+  <div class="section-title">Today's Picks <span class="count" id="picks-count">0</span></div>
+  <div class="picks-grid" id="picks-grid"></div>
+</div>
+
+<!-- Trades Section -->
+<div class="section" id="trades-section">
+  <div class="section-title">Open Trades <span class="count" id="trades-count">0</span> <button onclick="closeAll()" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid #f85149;background:transparent;color:#f85149;font-size:11px;cursor:pointer;font-weight:600;">Close All</button></div>
+  <table class="trades-table" id="trades-table">
+    <thead>
+      <tr>
+        <th>Ticker</th>
+        <th>Direction</th>
+        <th>Score</th>
+        <th>Entry Date</th>
+        <th>Stock Price</th>
+        <th>Option Entry</th>
+        <th>Option Bid</th>
+        <th>P&L</th>
+        <th>Today</th>
+        <th>Floor</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="trades-body"></tbody>
+  </table>
+</div>
+
+<!-- Comparison (only shown in 'both' mode) -->
+<div class="comparison" id="comparison-section" style="display:none;">
+  <div class="col">
+    <h3>🔒 Strict Scanner <span class="tag strict">Score ≥ 80</span></h3>
+    <div id="strict-stats"></div>
+  </div>
+  <div class="col">
+    <h3>🟢 Loose Scanner <span class="tag loose">Score ≥ 60</span></h3>
+    <div id="loose-stats"></div>
+  </div>
+</div>
+
+<!-- Closed Trades History -->
+<div class="section" id="history-section">
+  <div class="section-title">Trade History <span class="count" id="history-count">0</span></div>
+  <table class="trades-table" id="history-table">
+    <thead>
+      <tr>
+        <th>Ticker</th>
+        <th>Direction</th>
+        <th>Score</th>
+        <th>Entry Date</th>
+        <th>Entry Price</th>
+        <th>Exit Date</th>
+        <th>Exit Price</th>
+        <th>P&L</th>
+        <th>Exit Reason</th>
+      </tr>
+    </thead>
+    <tbody id="history-body"></tbody>
+  </table>
+</div>
+
+<script>
+let currentMode = 'loose';
+let perfData = null;
+let picksData = null;
+
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', 
+      (mode === 'loose' && i === 0) || 
+      (mode === 'strict' && i === 1) || 
+      (mode === 'both' && i === 2)
+    );
+  });
+  render();
+}
+
+async function fetchData() {
+  try {
+    const [perfResp, picksResp] = await Promise.all([
+      fetch('/api/performance'),
+      fetch('/api/picks')
+    ]);
+    perfData = await perfResp.json();
+    picksData = await picksResp.json();
+    render();
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error('Fetch error:', e);
+  }
+}
+
+function render() {
+  if (!perfData || !picksData) return;
+
+  const mode = currentMode;
+  const showComparison = mode === 'both';
+
+  document.getElementById('comparison-section').style.display = showComparison ? 'grid' : 'none';
+  document.getElementById('picks-section').style.display = showComparison ? 'none' : 'block';
+  document.getElementById('trades-section').style.display = showComparison ? 'none' : 'block';
+
+  if (showComparison) {
+    renderComparison();
+  } else {
+    renderPicks(mode);
+    renderTrades(mode);
+  }
+  renderSummary(mode);
+  renderHistory(mode);
+}
+
+function renderSummary(mode) {
+  let stats, picks;
+  if (mode === 'both') {
+    // Combined stats
+    const s = perfData.strict;
+    const l = perfData.loose;
+    const totalPicks = (picksData.strict?.length || 0) + (picksData.loose?.length || 0);
+    document.getElementById('total-picks').textContent = totalPicks;
+    document.getElementById('picks-sub').textContent = `${picksData.strict?.length || 0} strict + ${picksData.loose?.length || 0} loose`;
+    document.getElementById('open-trades').textContent = perfData.total_open;
+    document.getElementById('open-pnl-sub').textContent = `Unrealized: $${(s.open_pnl + l.open_pnl).toFixed(2)}`;
+    const totalPnl = perfData.combined_pnl;
+    const pnlEl = document.getElementById('realized-pnl');
+    pnlEl.textContent = `$${totalPnl.toFixed(2)}`;
+    pnlEl.className = 'value ' + (totalPnl > 0 ? 'green' : totalPnl < 0 ? 'red' : 'neutral');
+    const totalClosed = s.closed + l.closed;
+    const totalWins = s.wins + l.wins;
+    document.getElementById('pnl-record').textContent = `${totalClosed} closed trades`;
+    const wr = totalClosed > 0 ? (totalWins / totalClosed * 100).toFixed(1) : '0';
+    document.getElementById('win-rate').textContent = `${wr}%`;
+    document.getElementById('win-rate-sub').textContent = `${totalWins}W / ${totalClosed - totalWins}L`;
+    return;
+  }
+
+  stats = perfData[mode];
+  picks = picksData[mode] || [];
+
+  document.getElementById('total-picks').textContent = picks.length;
+  document.getElementById('picks-sub').textContent = picks.length > 0 
+    ? `Avg score: ${stats.avg_score}` : 'No picks today';
+
+  document.getElementById('open-trades').textContent = stats.open;
+  const openPnl = stats.open_pnl;
+  const openPnlEl = document.getElementById('open-pnl-sub');
+  openPnlEl.textContent = `Unrealized: $${openPnl.toFixed(2)}`;
+  openPnlEl.style.color = openPnl >= 0 ? '#3fb950' : '#f85149';
+
+  const pnlEl = document.getElementById('realized-pnl');
+  pnlEl.textContent = `$${stats.total_pnl.toFixed(2)}`;
+  pnlEl.className = 'value ' + (stats.total_pnl > 0 ? 'green' : stats.total_pnl < 0 ? 'red' : 'neutral');
+  document.getElementById('pnl-record').textContent = `${stats.closed} closed trades`;
+
+  document.getElementById('win-rate').textContent = `${stats.win_rate}%`;
+  document.getElementById('win-rate-sub').textContent = `${stats.wins}W / ${stats.losses}L`;
+  document.getElementById('open-trades').className = 'value ' + (stats.open > 0 ? 'green' : 'neutral');
+
+  // Daily P&L: sum of today's realized exits + change in unrealized for open positions
+  const today = new Date().toISOString().slice(0, 10);
+  const trades = stats.trades || [];
+  
+  // Today's realized (trades closed today)
+  const todayRealized = trades
+    .filter(t => (t.status === 'closed' || t.status === 'expired') && t.exit_date === today)
+    .reduce((sum, t) => sum + (t.pnl || 0), 0);
+  
+  // Today's unrealized change: for open trades, approximate daily change
+  // Use: current_pnl (total unrealized) - what it was yesterday
+  // Since we don't store yesterday's value, use entry_date to identify today's entries
+  // and for older positions, use the stored previous bid vs current
+  let todayUnrealized = 0;
+  const openTrades = trades.filter(t => t.status === 'open');
+  for (const t of openTrades) {
+    if (t.entry_date === today) {
+      // Entered today — daily P&L is just current unrealized
+      todayUnrealized += (t.current_pnl || 0);
+    } else {
+      // Older position — estimate daily move from stock change
+      // If we have current bid and entry, today's move is roughly the stock's daily % * delta * 100
+      const bid = t.current_option_bid || 0;
+      const prevBid = t.prev_option_bid || t.option_cost || bid;
+      todayUnrealized += (bid - prevBid) * 100;
+    }
+  }
+  
+  const dailyTotal = todayRealized + todayUnrealized;
+  const dailyEl = document.getElementById('daily-pnl');
+  dailyEl.textContent = `${dailyTotal >= 0 ? '+' : ''}$${dailyTotal.toFixed(2)}`;
+  dailyEl.className = 'value ' + (dailyTotal > 0 ? 'green' : dailyTotal < 0 ? 'red' : 'neutral');
+  
+  const dailySub = document.getElementById('daily-pnl-sub');
+  let subParts = [];
+  if (todayRealized !== 0) subParts.push(`realized: $${todayRealized >= 0 ? '+' : ''}${todayRealized.toFixed(0)}`);
+  if (todayUnrealized !== 0) subParts.push(`unrealized: $${todayUnrealized >= 0 ? '+' : ''}${todayUnrealized.toFixed(0)}`);
+  dailySub.textContent = subParts.length > 0 ? subParts.join(' | ') : 'No change today';
+}
+
+function renderPicks(mode) {
+  const picks = picksData[mode] || [];
+  document.getElementById('picks-count').textContent = picks.length;
+  const grid = document.getElementById('picks-grid');
+
+  if (picks.length === 0) {
+    grid.innerHTML = '<div style="color:#8b949e;padding:20px;">No picks found. Scanner may not have run today.</div>';
+    return;
+  }
+
+  grid.innerHTML = picks.map(p => {
+    const scoreClass = p.score >= 80 ? 'high' : p.score >= 60 ? 'mid' : 'low';
+    const dirClass = p.direction.toLowerCase();
+    const opt = p.option || {};
+    return `
+      <div class="pick-card">
+        <div class="header">
+          <span class="ticker">${p.ticker}</span>
+          <span class="direction ${dirClass}">${p.direction}</span>
+          <span style="margin-left:auto;font-size:20px;font-weight:700;color:${scoreClass === 'high' ? '#3fb950' : scoreClass === 'mid' ? '#d29922' : '#f85149'}">${p.score}</span>
+        </div>
+        <div class="score-bar"><div class="fill ${scoreClass}" style="width:${p.score}%"></div></div>
+        <div class="details">
+          <div class="row"><span class="lbl">Setup</span><span class="val">${formatSetup(p.setup)}</span></div>
+          <div class="row"><span class="lbl">Price</span><span class="val">$${p.price?.toFixed(2) || '—'}</span></div>
+          <div class="row"><span class="lbl">RSI</span><span class="val">${p.rsi?.toFixed(1) || '—'}</span></div>
+          <div class="row"><span class="lbl">ATR%</span><span class="val">${p.atr_pct?.toFixed(1) || '—'}%</span></div>
+          <div class="row"><span class="lbl">Vol Ratio</span><span class="val">${p.vol_ratio?.toFixed(1) || '—'}x</span></div>
+          <div class="row"><span class="lbl">10d Move</span><span class="val" style="color:${(p.move_10d||0) >= 0 ? '#3fb950' : '#f85149'}">${(p.move_10d||0) >= 0 ? '+' : ''}${p.move_10d?.toFixed(1) || '0'}%</span></div>
+        </div>
+        ${opt.strike ? `
+        <div class="option-info">
+          <div class="row"><span class="lbl">Strike</span><span class="val">$${opt.strike}</span></div>
+          <div class="row"><span class="lbl">Exp</span><span class="val">${opt.expiration}</span></div>
+          <div class="row"><span class="lbl">Bid/Ask</span><span class="val">$${opt.bid?.toFixed(2)} / $${opt.ask?.toFixed(2)}</span></div>
+          <div class="row"><span class="lbl">Spread</span><span class="val">${opt.spread_pct?.toFixed(1)}%</span></div>
+          <div class="row"><span class="lbl">OI</span><span class="val">${opt.open_interest?.toLocaleString()}</span></div>
+          <div class="row"><span class="lbl">Cost</span><span class="val" style="color:#58a6ff;font-weight:700;">$${opt.cost_per_contract?.toFixed(0)}</span></div>
+        </div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTrades(mode) {
+  const stats = perfData[mode];
+  const trades = stats?.trades || [];
+  const openTrades = trades.filter(t => t.status === 'open');
+  document.getElementById('trades-count').textContent = openTrades.length;
+  const tbody = document.getElementById('trades-body');
+
+  if (openTrades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" style="color:#8b949e;padding:20px;">No open trades</td></tr>';
+    return;
+  }
+
+  // Sort by P&L descending (winners on top)
+  openTrades.sort((a, b) => (b.current_pnl || 0) - (a.current_pnl || 0));
+
+  tbody.innerHTML = openTrades.map(t => {
+    const pnl = t.current_pnl || 0;
+    const bid = t.current_option_bid;
+    const entry = t.option_cost || 0;
+    const pnlPct = entry > 0 && bid ? ((bid - entry) / entry * 100).toFixed(0) : '—';
+    const pnlClass = pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : '';
+    const dirClass = t.direction === 'CALL' ? 'color:#3fb950' : 'color:#f85149';
+    const floor = t.trailing_floor_pct;
+    const floorStr = floor ? `+${floor}%` : '—';
+    const floorColor = floor ? '#58a6ff' : '#8b949e';
+    const stockChg = t.stock_change_pct ? `<span style="${t.stock_change_pct >= 0 ? 'color:#3fb950' : 'color:#f85149'}">(${t.stock_change_pct >= 0 ? '+' : ''}${t.stock_change_pct}%)</span>` : '';
+
+    // Daily change per trade
+    const prevBid = t.prev_option_bid;
+    let dailyDollars = 0;
+    let dailyStr = '—';
+    if (bid && prevBid && prevBid > 0) {
+      dailyDollars = (bid - prevBid) * 100;
+      const dailyPct = ((bid - prevBid) / prevBid * 100).toFixed(0);
+      const dailyColor = dailyDollars > 0 ? 'color:#3fb950' : dailyDollars < 0 ? 'color:#f85149' : '';
+      dailyStr = `<span style="${dailyColor};font-weight:600;">${dailyDollars >= 0 ? '+' : ''}$${dailyDollars.toFixed(0)}<br><span style="font-size:10px;opacity:0.8;">(${dailyPct}%)</span></span>`;
+    } else if (t.entry_date === new Date().toISOString().slice(0, 10)) {
+      // Entered today — daily = total P&L
+      const dailyColor = pnl > 0 ? 'color:#3fb950' : pnl < 0 ? 'color:#f85149' : '';
+      dailyStr = `<span style="${dailyColor};font-weight:600;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}<br><span style="font-size:10px;opacity:0.8;">(new)</span></span>`;
+    }
+
+    return `
+      <tr>
+        <td style="font-weight:700;">${t.ticker}<br><span style="font-size:10px;color:#8b949e;">exp ${t.option_exp?.slice(5) || ''}</span></td>
+        <td style="${dirClass};font-weight:600;">${t.direction}<br><span style="font-size:10px;color:#8b949e;">$${t.option_strike}</span></td>
+        <td>${t.score}</td>
+        <td>${t.entry_date || '—'}<br><span style="font-size:10px;color:#8b949e;">${formatSetup(t.setup)}</span></td>
+        <td>${t.current_price ? '$' + t.current_price.toFixed(2) : '$' + (t.entry_price?.toFixed(2) || '—')} ${stockChg}<br><span style="font-size:10px;color:#8b949e;">entry $${t.entry_price?.toFixed(2) || '—'}</span></td>
+        <td>$${entry.toFixed(2)}<br><span style="font-size:10px;color:#8b949e;">($${t.cost_per_contract?.toFixed(0) || (entry*100).toFixed(0)}/ct)</span></td>
+        <td style="font-weight:600;${bid > entry ? 'color:#3fb950' : bid < entry ? 'color:#f85149' : ''}">${bid ? '$' + bid.toFixed(2) : '—'}</td>
+        <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}<br><span style="font-size:11px;opacity:0.8;">(${pnlPct}%)</span></td>
+        <td>${dailyStr}</td>
+        <td style="color:${floorColor};font-weight:${floor ? '600' : '400'};">${floorStr}</td>
+        <td><button onclick="closeTrade('${t.ticker}')" style="padding:3px 8px;border-radius:4px;border:1px solid #30363d;background:#21262d;color:#f85149;font-size:11px;cursor:pointer;">✕</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderHistory(mode) {
+  let trades;
+  if (mode === 'both') {
+    const st = perfData.strict?.trades || [];
+    const lt = perfData.loose?.trades || [];
+    trades = [...st, ...lt].filter(t => t.status === 'closed' || t.status === 'expired');
+  } else {
+    trades = (perfData[mode]?.trades || []).filter(t => t.status === 'closed' || t.status === 'expired');
+  }
+
+  document.getElementById('history-count').textContent = trades.length;
+  const tbody = document.getElementById('history-body');
+
+  if (trades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="color:#8b949e;padding:20px;">No closed trades yet</td></tr>';
+    return;
+  }
+
+  trades.sort((a, b) => (b.exit_date || b.entry_date || '').localeCompare(a.exit_date || a.entry_date || ''));
+  tbody.innerHTML = trades.map(t => {
+    const pnl = t.pnl || 0;
+    const pnlPct = t.pnl_pct || (t.option_cost > 0 ? ((pnl / (t.option_cost * 100)) * 100).toFixed(0) : '?');
+    const pnlClass = pnl > 0 ? 'pnl-pos' : 'pnl-neg';
+    const exitBid = t.exit_option_bid || t.exit_fill_price || t.exit_fill_estimate;
+    const exitStr = exitBid ? `$${exitBid.toFixed(2)}` : (t.status === 'expired' ? 'Worthless' : '—');
+    const highWater = t.high_water_pct ? ` (peak:+${t.high_water_pct.toFixed(0)}%)` : '';
+    const exitReason = (t.exit_reason || t.status || '—');
+    
+    return `
+      <tr>
+        <td style="font-weight:700;">${t.ticker}</td>
+        <td style="${t.direction === 'CALL' ? 'color:#3fb950' : 'color:#f85149'}">${t.direction} $${t.option_strike}<br><span style="font-size:10px;color:#8b949e;">exp ${t.option_exp?.slice(5) || ''}</span></td>
+        <td>${t.score}</td>
+        <td>${t.entry_date || '—'}<br><span style="font-size:10px;color:#8b949e;">stock $${t.entry_price?.toFixed(2) || '—'}</span></td>
+        <td>$${t.option_cost?.toFixed(2) || '—'}<br><span style="font-size:10px;color:#8b949e;">($${t.cost_per_contract?.toFixed(0) || '—'}/contract)</span></td>
+        <td>${t.exit_date || '—'}<br><span style="font-size:10px;color:#8b949e;">stock $${t.exit_price?.toFixed(2) || '—'}</span></td>
+        <td style="font-weight:600;${exitBid && exitBid > (t.option_cost||0) ? 'color:#3fb950' : ''}">${exitStr}${highWater}</td>
+        <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}<br><span style="font-size:11px;opacity:0.8;">(${pnlPct}%)</span></td>
+        <td>${pnl > 0 ? '✅' : '❌'} ${exitReason}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderComparison() {
+  const strict = perfData.strict;
+  const loose = perfData.loose;
+
+  document.getElementById('strict-stats').innerHTML = renderStatBlock(strict, picksData.strict);
+  document.getElementById('loose-stats').innerHTML = renderStatBlock(loose, picksData.loose);
+}
+
+function renderStatBlock(stats, picks) {
+  return `
+    <div class="stat-row"><span class="lbl">Today's Picks</span><span class="val">${picks?.length || 0}</span></div>
+    <div class="stat-row"><span class="lbl">Open Trades</span><span class="val">${stats.open}</span></div>
+    <div class="stat-row"><span class="lbl">Closed Trades</span><span class="val">${stats.closed}</span></div>
+    <div class="stat-row"><span class="lbl">Win Rate</span><span class="val">${stats.win_rate}%</span></div>
+    <div class="stat-row"><span class="lbl">Wins / Losses</span><span class="val">${stats.wins}W / ${stats.losses}L</span></div>
+    <div class="stat-row"><span class="lbl">Realized P&L</span><span class="val" style="color:${stats.total_pnl >= 0 ? '#3fb950' : '#f85149'}">$${stats.total_pnl.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="lbl">Unrealized P&L</span><span class="val" style="color:${stats.open_pnl >= 0 ? '#3fb950' : '#f85149'}">$${stats.open_pnl.toFixed(2)}</span></div>
+    <div class="stat-row"><span class="lbl">Avg Score</span><span class="val">${stats.avg_score}</span></div>
+    ${(stats.trades || []).filter(t => t.status === 'open').map(t => `
+      <div class="stat-row" style="margin-top:8px;padding-top:8px;border-top:1px solid #30363d;">
+        <span class="lbl" style="font-weight:600;">${t.ticker} ${t.direction}</span>
+        <span class="val" style="color:${(t.current_pnl||0) >= 0 ? '#3fb950' : '#f85149'}">${(t.current_pnl||0) >= 0 ? '+' : ''}$${(t.current_pnl||0).toFixed(2)}</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+function formatSetup(setup) {
+  if (!setup) return '—';
+  return setup.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Funding modal
+let fundType = 'deposit';
+
+function openFundingModal() {
+  document.getElementById('funding-modal').style.display = 'flex';
+  document.getElementById('fund-amount').value = '';
+  document.getElementById('fund-note').value = '';
+  document.getElementById('fund-result').style.display = 'none';
+  setFundType('deposit');
+}
+
+function closeFundingModal() {
+  document.getElementById('funding-modal').style.display = 'none';
+}
+
+function setFundType(type) {
+  fundType = type;
+  const depBtn = document.getElementById('fund-deposit-btn');
+  const witBtn = document.getElementById('fund-withdraw-btn');
+  if (type === 'deposit') {
+    depBtn.style.border = '1px solid #3fb950';
+    depBtn.style.background = '#0d2818';
+    depBtn.style.color = '#3fb950';
+    witBtn.style.border = '1px solid #30363d';
+    witBtn.style.background = 'transparent';
+    witBtn.style.color = '#8b949e';
+  } else {
+    witBtn.style.border = '1px solid #f85149';
+    witBtn.style.background = '#2d1215';
+    witBtn.style.color = '#f85149';
+    depBtn.style.border = '1px solid #30363d';
+    depBtn.style.background = 'transparent';
+    depBtn.style.color = '#8b949e';
+  }
+}
+
+async function submitFunding() {
+  const amount = parseFloat(document.getElementById('fund-amount').value);
+  const note = document.getElementById('fund-note').value;
+  const resultEl = document.getElementById('fund-result');
+  
+  if (!amount || amount <= 0) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#2d1215';
+    resultEl.style.color = '#f85149';
+    resultEl.textContent = 'Please enter a valid amount';
+    return;
+  }
+  
+  const endpoint = fundType === 'deposit' ? '/api/account/deposit' : '/api/account/withdraw';
+  try {
+    const resp = await fetch(`${endpoint}?amount=${amount}&note=${encodeURIComponent(note)}`, { method: 'POST' });
+    const data = await resp.json();
+    
+    resultEl.style.display = 'block';
+    if (data.success) {
+      resultEl.style.background = '#0d2818';
+      resultEl.style.color = '#3fb950';
+      resultEl.textContent = data.message + ` | New basis: $${data.new_cash_basis.toFixed(2)}`;
+      fetchData(); // refresh dashboard
+      setTimeout(closeFundingModal, 2000);
+    } else {
+      resultEl.style.background = '#2d1215';
+      resultEl.style.color = '#f85149';
+      resultEl.textContent = data.error || 'Failed';
+    }
+  } catch (e) {
+    resultEl.style.display = 'block';
+    resultEl.style.background = '#2d1215';
+    resultEl.style.color = '#f85149';
+    resultEl.textContent = 'Error: ' + e.message;
+  }
+}
+
+// Close modal on background click
+document.getElementById('funding-modal')?.addEventListener('click', function(e) {
+  if (e.target === this) closeFundingModal();
+});
+
+// Close functions
+async function closeTrade(ticker) {
+  if (!confirm(`Close all ${ticker} positions at current bid?`)) return;
+  try {
+    const resp = await fetch(`/api/close/${ticker}`, { method: 'POST' });
+    const data = await resp.json();
+    alert(data.message);
+    fetchData();
+  } catch (e) {
+    alert('Error closing trade: ' + e.message);
+  }
+}
+
+async function closeAll() {
+  if (!confirm('Close ALL open positions at current bid? This cannot be undone.')) return;
+  try {
+    const resp = await fetch('/api/close-all', { method: 'POST' });
+    const data = await resp.json();
+    alert(data.message);
+    fetchData();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// Initial fetch and auto-refresh
+fetchData();
+setInterval(fetchData, 30000); // refresh every 30s
+</script>
+</body>
+</html>
