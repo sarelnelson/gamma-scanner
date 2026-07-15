@@ -4,14 +4,42 @@ Runs at market open, scans S&P 500 + high-volume mid-caps.
 Finds oversold bounce candidates and extended short candidates.
 Scores, filters, selects options, auto-enters top picks.
 """
-import json, os, time
+import json, os, time, sys
 from datetime import datetime, timedelta
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import ta
 import warnings
 warnings.filterwarnings('ignore')
+
+# Use Alpaca data (works on cloud/EC2), fall back to yfinance (works locally)
+try:
+    from data_alpaca import get_daily_bars, get_option_expirations, get_option_chain
+    USE_ALPACA_DATA = True
+except ImportError:
+    USE_ALPACA_DATA = False
+
+try:
+    import yfinance as yf
+    HAS_YFINANCE = True
+except ImportError:
+    HAS_YFINANCE = False
+
+
+def get_stock_history(ticker, days=90):
+    """Get daily OHLCV data from best available source."""
+    if USE_ALPACA_DATA:
+        df = get_daily_bars(ticker, days)
+        if not df.empty:
+            return df
+    if HAS_YFINANCE:
+        try:
+            df = yf.Ticker(ticker).history(period="3mo", interval="1d")
+            if not df.empty:
+                return df
+        except:
+            pass
+    return pd.DataFrame()
 
 SCANNER_DIR = "/workspace/stock-agent/gamma_scanner"
 PICKS_FILE = f"{SCANNER_DIR}/picks_loose.json"
@@ -111,7 +139,7 @@ def screen_stocks():
 
     for ticker in SP500_SAMPLE:
         try:
-            df = yf.Ticker(ticker).history(period="3mo", interval="1d")
+            df = get_stock_history(ticker, days=90)
             if df.empty or len(df) < 50:
                 continue
 
@@ -228,12 +256,19 @@ def score_and_select_options(candidates):
     for c in candidates:
         ticker = c["ticker"]
         try:
-            t = yf.Ticker(ticker)
-            expirations = t.options
+            # Get option expirations
+            if USE_ALPACA_DATA:
+                expirations = get_option_expirations(ticker)
+            elif HAS_YFINANCE:
+                t = yf.Ticker(ticker)
+                expirations = t.options if t.options else []
+            else:
+                continue
+                
             if not expirations:
                 continue
 
-            # Find expiration 7-21 days out
+            # Find expiration 14-28 days out
             today = datetime.now().date()
             valid_exp = None
             for exp in expirations:
@@ -244,8 +279,17 @@ def score_and_select_options(candidates):
             if not valid_exp:
                 continue
 
-            chain = t.option_chain(valid_exp)
-            options = chain.calls if c["direction"] == "CALL" else chain.puts
+            # Get option chain
+            if USE_ALPACA_DATA:
+                chain_data = get_option_chain(ticker, valid_exp)
+                if not chain_data:
+                    continue
+                options = chain_data["calls"] if c["direction"] == "CALL" else chain_data["puts"]
+            elif HAS_YFINANCE:
+                chain = yf.Ticker(ticker).option_chain(valid_exp)
+                options = chain.calls if c["direction"] == "CALL" else chain.puts
+            else:
+                continue
 
             if options.empty:
                 continue
@@ -647,8 +691,10 @@ def check_open_trades():
 
         ticker = trade["ticker"]
         try:
-            t = yf.Ticker(ticker)
-            price = t.history(period="1d")["Close"].iloc[-1]
+            df = get_stock_history(ticker, days=5)
+            if df.empty:
+                continue
+            price = float(df["Close"].iloc[-1])
 
             # Check if option expired
             exp_date = datetime.strptime(trade["option_exp"], "%Y-%m-%d").date()
