@@ -173,6 +173,7 @@ a:hover { text-decoration: underline; }
   <h1>🎯 Gamma Scanner</h1>
   <div class="nav">
     <button onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;">💳 Fund</button>
+    <button id="pause-btn" onclick="togglePause()" style="padding:6px 14px;border-radius:6px;border:1px solid #d29922;background:transparent;color:#d29922;font-size:12px;cursor:pointer;font-weight:600;">⏸ Pause</button>
     <a href="https://ds-l4ximmxa--8080.us-west-2.prod.proxy.devspaces.amazon.dev/" class="back-link">← Main</a>
     <span style="color:#8b949e;font-size:12px;" id="last-update"></span>
     <span><span class="status-dot live"></span></span>
@@ -618,6 +619,41 @@ function formatSetup(setup) {
   return setup.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// Pause/Unpause
+let systemPaused = false;
+
+async function checkPauseStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    const data = await resp.json();
+    systemPaused = data.paused;
+    const btn = document.getElementById('pause-btn');
+    if (systemPaused) {
+      btn.textContent = '▶ Resume';
+      btn.style.borderColor = '#3fb950';
+      btn.style.color = '#3fb950';
+    } else {
+      btn.textContent = '⏸ Pause';
+      btn.style.borderColor = '#d29922';
+      btn.style.color = '#d29922';
+    }
+  } catch(e) {}
+}
+
+async function togglePause() {
+  const endpoint = systemPaused ? '/api/unpause' : '/api/pause';
+  const action = systemPaused ? 'Resume scanning?' : 'Pause scanner? (open positions still monitored)';
+  if (!confirm(action)) return;
+  try {
+    const resp = await fetch(endpoint, { method: 'POST' });
+    const data = await resp.json();
+    alert(data.message);
+    checkPauseStatus();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
 // Funding modal
 let fundType = 'deposit';
 
@@ -724,7 +760,9 @@ async function closeAll() {
 
 // Initial fetch and auto-refresh
 fetchData();
-setInterval(fetchData, 30000); // refresh every 30s
+checkPauseStatus();
+setInterval(fetchData, 30000);
+setInterval(checkPauseStatus, 30000);
 </script>
 </body>
 </html>

@@ -441,6 +441,12 @@ def run_monitor():
     """
     Main loop — runs during market hours, sleeps when closed.
     Also triggers stock scans 3x per day (10:00, 12:00, 14:00 ET = 14:00, 16:00, 18:00 UTC).
+    
+    CRASH DETECTION: Monitors SPY for broad market selloff.
+    If SPY drops >3% in 5 days, sends warning notification.
+    If SPY drops >5% in 5 days, auto-pauses scanner (no new entries).
+    
+    PAUSE: Check for pause file. If exists, skip scanning (but still monitor open positions).
     """
     # Single instance guard
     if not acquire_lock():
@@ -450,19 +456,58 @@ def run_monitor():
     atexit.register(release_lock)
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
+
+    PAUSE_FILE = os.path.join(os.path.dirname(TRADES_FILE), ".paused")
+    CRASH_WARN_SENT_FILE = os.path.join(os.path.dirname(TRADES_FILE), ".crash_warned")
+
+    def is_paused():
+        return os.path.exists(PAUSE_FILE)
+    
+    def check_market_health():
+        """Check SPY for crash conditions. Returns 'ok', 'warning', or 'danger'."""
+        try:
+            import requests as req
+            from config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+            hdrs = {'APCA-API-KEY-ID': ALPACA_API_KEY, 'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY}
+            resp = req.get('https://data.alpaca.markets/v2/stocks/SPY/bars',
+                headers=hdrs, params={'timeframe': '1Day', 'limit': 6, 'adjustment': 'split'}, timeout=5)
+            if resp.status_code != 200:
+                return 'ok'  # can't check, assume ok
+            bars = resp.json().get('bars', [])
+            if len(bars) < 5:
+                return 'ok'
+            
+            # 5-day change
+            price_5d_ago = bars[0]['c']
+            price_now = bars[-1]['c']
+            change_5d = (price_now - price_5d_ago) / price_5d_ago * 100
+            
+            if change_5d <= -5:
+                return 'danger'
+            elif change_5d <= -3:
+                return 'warning'
+            return 'ok'
+        except:
+            return 'ok'
     log("=" * 60)
     log("GAMMA PROFIT MONITOR STARTED")
     log(f"  Trailing stop: activates at +{PROFIT_TARGET_PCT}%, ratchets every +50%")
     log(f"  Check interval: {CHECK_INTERVAL}s")
     log(f"  Scan schedule: 10:00, 12:00, 14:00 ET")
     log(f"  Trades file: {TRADES_FILE}")
+    log(f"  Consecutive loss watchdog: warn at 5, kill at 10")
     log("=" * 60)
     
     consecutive_errors = 0
-    scans_completed_today = set()  # track which scan hours we've done today
+    scans_completed_today = set()
     
     # Scan hours in UTC (ET + 4 during EDT)
     SCAN_HOURS_UTC = [14, 16, 18]  # 10:00, 12:00, 14:00 ET
+    
+    # Consecutive loss watchdog
+    LOSS_WARN_THRESHOLD = 5
+    LOSS_KILL_THRESHOLD = 10
+    loss_warning_sent = False
     
     while True:
         try:
@@ -478,36 +523,97 @@ def run_monitor():
                 time.sleep(300)
                 continue
             
-            # Check positions every cycle
+            # Check positions every cycle (always runs, even if paused)
             check_positions()
             consecutive_errors = 0
             
-            # Check if it's time for a scan (only fire one per cycle to avoid flooding)
-            now = datetime.utcnow()
-            today_str = now.strftime("%Y-%m-%d")
+            # === CRASH DETECTION (check every 10 cycles = ~20 min) ===
+            if not hasattr(run_monitor, '_cycle_count'):
+                run_monitor._cycle_count = 0
+            run_monitor._cycle_count += 1
             
-            scan_fired_this_cycle = False
-            for scan_hour in SCAN_HOURS_UTC:
-                if scan_fired_this_cycle:
-                    break
-                scan_key = f"{today_str}_{scan_hour}"
-                # Fire scan if: we haven't done it today AND current time is past the scheduled hour
-                # This catches late starts (e.g., monitor started at 15:30, still runs the 14:00 scan)
-                past_scan_time = now.hour > scan_hour or (now.hour == scan_hour and now.minute >= 0)
-                if scan_key not in scans_completed_today and past_scan_time:
-                    # Time to scan
-                    log(f"⏰ Scheduled scan triggered ({scan_hour}:00 UTC)")
-                    try:
-                        from scanner_loose import run_scan
-                        # Reload module to pick up any changes
-                        import importlib, scanner_loose
-                        importlib.reload(scanner_loose)
-                        from scanner_loose import run_scan
-                        run_scan()
-                    except Exception as e:
-                        log(f"Scan error: {e}", "ERROR")
-                    scans_completed_today.add(scan_key)
-                    scan_fired_this_cycle = True
+            if run_monitor._cycle_count % 10 == 0:
+                health = check_market_health()
+                if health == 'danger' and not os.path.exists(CRASH_WARN_SENT_FILE):
+                    log("🚨 MARKET CRASH DETECTED: SPY down >5% in 5 days — AUTO-PAUSING SCANNER", "WARN")
+                    notify("🚨 CRASH: Scanner auto-paused", "SPY down >5% in 5 days.\nNo new entries until you unpause.\nOpen positions still monitored.", priority="urgent", tags="rotating_light,chart_with_downwards_trend")
+                    # Auto-pause
+                    with open(PAUSE_FILE, 'w') as f:
+                        f.write(f"Auto-paused: SPY crash detected {datetime.utcnow().isoformat()}")
+                    with open(CRASH_WARN_SENT_FILE, 'w') as f:
+                        f.write(datetime.utcnow().isoformat())
+                elif health == 'warning' and not os.path.exists(CRASH_WARN_SENT_FILE):
+                    log("⚠️ MARKET WARNING: SPY down >3% in 5 days", "WARN")
+                    notify("⚠️ Market weakness warning", "SPY down >3% in 5 days.\nScanner still active but consider pausing.\nWatch for further deterioration.", priority="high", tags="warning")
+                    with open(CRASH_WARN_SENT_FILE, 'w') as f:
+                        f.write(datetime.utcnow().isoformat())
+                elif health == 'ok' and os.path.exists(CRASH_WARN_SENT_FILE):
+                    # Market recovered — clear warning flag
+                    os.remove(CRASH_WARN_SENT_FILE)
+            
+            # === SCAN (only if not paused) ===
+            if is_paused():
+                if run_monitor._cycle_count % 30 == 0:  # log every ~60 min
+                    log("⏸️ Scanner PAUSED — monitoring positions only, no new entries")
+            else:
+                # === CONSECUTIVE LOSS WATCHDOG ===
+                try:
+                    _trades = load_trades()
+                    _recent = [t for t in _trades if t.get("status") in ("closed", "expired")][-15:]
+                    if len(_recent) >= LOSS_WARN_THRESHOLD:
+                        consec_losses = 0
+                        for t in reversed(_recent):
+                            if t.get("pnl", 0) <= 0:
+                                consec_losses += 1
+                            else:
+                                break
+                        
+                        if consec_losses >= LOSS_KILL_THRESHOLD:
+                            log(f"🛑 {consec_losses} CONSECUTIVE LOSSES — AUTO-PAUSING", "WARN")
+                            notify(
+                                f"KILLED: {consec_losses} consecutive losses",
+                                f"Scanner auto-paused after {consec_losses} straight losses.\nManually unpause when conditions improve.",
+                                priority="urgent", tags="stop_sign"
+                            )
+                            with open(PAUSE_FILE, 'w') as f:
+                                f.write(f"Auto-killed: {consec_losses} consecutive losses {datetime.utcnow().isoformat()}")
+                        elif consec_losses >= LOSS_WARN_THRESHOLD and not loss_warning_sent:
+                            log(f"⚠️ {consec_losses} consecutive losses — WARNING", "WARN")
+                            notify(
+                                f"WARNING: {consec_losses} straight losses",
+                                f"Scanner still active but struggling.\n{LOSS_KILL_THRESHOLD - consec_losses} more losses until auto-pause.",
+                                priority="high", tags="warning"
+                            )
+                            loss_warning_sent = True
+                        elif consec_losses < LOSS_WARN_THRESHOLD:
+                            loss_warning_sent = False
+                except:
+                    pass
+                
+                # Check if it's time for a scan (only fire one per cycle to avoid flooding)
+                now = datetime.utcnow()
+                today_str = now.strftime("%Y-%m-%d")
+                
+                scan_fired_this_cycle = False
+                for scan_hour in SCAN_HOURS_UTC:
+                    if scan_fired_this_cycle:
+                        break
+                    scan_key = f"{today_str}_{scan_hour}"
+                    # Fire scan if: we haven't done it today AND current time is past the scheduled hour
+                    past_scan_time = now.hour > scan_hour or (now.hour == scan_hour and now.minute >= 0)
+                    if scan_key not in scans_completed_today and past_scan_time:
+                        # Time to scan
+                        log(f"⏰ Scheduled scan triggered ({scan_hour}:00 UTC)")
+                        try:
+                            from scanner_loose import run_scan
+                            import importlib, scanner_loose
+                            importlib.reload(scanner_loose)
+                            from scanner_loose import run_scan
+                            run_scan()
+                        except Exception as e:
+                            log(f"Scan error: {e}", "ERROR")
+                        scans_completed_today.add(scan_key)
+                        scan_fired_this_cycle = True
             
             time.sleep(CHECK_INTERVAL)
             

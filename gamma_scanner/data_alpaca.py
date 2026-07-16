@@ -30,8 +30,8 @@ def _rate_limit():
 
 def get_daily_bars(ticker: str, days: int = 90) -> pd.DataFrame:
     """
-    Get daily OHLCV bars from Alpaca.
-    Returns DataFrame with columns: Open, High, Low, Close, Volume (same as yfinance format).
+    Get daily OHLCV bars from Alpaca for a single ticker.
+    Returns DataFrame with columns: Open, High, Low, Close, Volume.
     """
     _rate_limit()
     
@@ -60,28 +60,71 @@ def get_daily_bars(ticker: str, days: int = 90) -> pd.DataFrame:
             return pd.DataFrame()
         
         df = pd.DataFrame(bars)
-        df = df.rename(columns={
-            "o": "Open",
-            "h": "High", 
-            "l": "Low",
-            "c": "Close",
-            "v": "Volume",
-            "t": "Date",
-        })
+        df = df.rename(columns={"o": "Open", "h": "High", "l": "Low", "c": "Close", "v": "Volume", "t": "Date"})
         df["Date"] = pd.to_datetime(df["Date"])
         df = df.set_index("Date")
         df = df[["Open", "High", "Low", "Close", "Volume"]]
-        
         return df
         
-    except Exception as e:
+    except:
         return pd.DataFrame()
+
+
+def get_bulk_daily_bars(tickers: list, days: int = 20) -> dict:
+    """
+    Get daily bars for up to 200 symbols in ONE API call.
+    Returns dict of {ticker: DataFrame}.
+    Handles batching if >200 symbols.
+    """
+    results = {}
+    start = (datetime.now() - timedelta(days=days + 5)).strftime("%Y-%m-%d")
+    
+    # Alpaca handles ~200 symbols per request
+    batch_size = 200
+    for i in range(0, len(tickers), batch_size):
+        batch = tickers[i:i + batch_size]
+        _rate_limit()
+        
+        try:
+            resp = requests.get(
+                f"{DATA_URL}/stocks/bars",
+                headers=HEADERS,
+                params={
+                    "symbols": ",".join(batch),
+                    "timeframe": "1Day",
+                    "start": start,
+                    "limit": 10000,
+                    "adjustment": "split",
+                },
+                timeout=30,
+            )
+            
+            if resp.status_code != 200:
+                continue
+            
+            data = resp.json()
+            bars_dict = data.get("bars", {})
+            
+            for ticker, bars in bars_dict.items():
+                if not bars:
+                    continue
+                df = pd.DataFrame(bars)
+                df = df.rename(columns={"o": "Open", "h": "High", "l": "Low", "c": "Close", "v": "Volume", "t": "Date"})
+                df["Date"] = pd.to_datetime(df["Date"])
+                df = df.set_index("Date")
+                df = df[["Open", "High", "Low", "Close", "Volume"]]
+                results[ticker] = df
+                
+        except:
+            continue
+    
+    return results
 
 
 def get_option_chain(ticker: str, expiration: str = None):
     """
-    Get option chain from Alpaca.
-    Returns calls and puts DataFrames similar to yfinance format.
+    Get option chain from Alpaca for a specific expiration date.
+    Returns calls and puts DataFrames.
     """
     _rate_limit()
     
@@ -180,9 +223,13 @@ def _build_chain_df(contracts, quotes):
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def get_option_expirations(ticker: str):
-    """Get available option expiration dates for a ticker."""
+def get_option_expirations(ticker: str, min_days=14, max_days=28):
+    """Get available option expiration dates for a ticker within a date range."""
     _rate_limit()
+    
+    today = datetime.now().date()
+    exp_min = (today + timedelta(days=min_days)).strftime("%Y-%m-%d")
+    exp_max = (today + timedelta(days=max_days)).strftime("%Y-%m-%d")
     
     try:
         resp = requests.get(
@@ -191,7 +238,9 @@ def get_option_expirations(ticker: str):
             params={
                 "underlying_symbols": ticker,
                 "status": "active",
-                "limit": 100,
+                "expiration_date_gte": exp_min,
+                "expiration_date_lte": exp_max,
+                "limit": 10,
             },
             timeout=10,
         )

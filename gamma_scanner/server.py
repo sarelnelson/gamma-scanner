@@ -222,8 +222,11 @@ def health():
 
 @app.post("/api/scan")
 def trigger_scan():
-    """Manually trigger a scan (only works during market hours)."""
+    """Manually trigger a scan (only works during market hours and not paused)."""
     from market_clock import is_market_open
+    pause_file = os.path.join(DATA_DIR, ".paused")
+    if os.path.exists(pause_file):
+        return {"error": "Scanner is PAUSED. Unpause first.", "triggered": False}
     if not is_market_open():
         return {"error": "Market is closed", "triggered": False}
 
@@ -233,6 +236,48 @@ def trigger_scan():
         "triggered": True,
         "picks_found": len(picks),
         "picks": picks,
+    }
+
+
+@app.post("/api/pause")
+def pause_scanner():
+    """Pause the scanner — no new entries, but still monitors open positions."""
+    pause_file = os.path.join(DATA_DIR, ".paused")
+    with open(pause_file, 'w') as f:
+        f.write(f"Manually paused at {datetime.utcnow().isoformat()}")
+    return {"paused": True, "message": "Scanner paused. Open positions still monitored. No new entries."}
+
+
+@app.post("/api/unpause")
+def unpause_scanner():
+    """Resume the scanner — allow new entries again."""
+    pause_file = os.path.join(DATA_DIR, ".paused")
+    crash_file = os.path.join(DATA_DIR, ".crash_warned")
+    if os.path.exists(pause_file):
+        os.remove(pause_file)
+    if os.path.exists(crash_file):
+        os.remove(crash_file)
+    return {"paused": False, "message": "Scanner resumed. Will enter new trades on next scan."}
+
+
+@app.get("/api/status")
+def get_status():
+    """Get pause/crash status."""
+    pause_file = os.path.join(DATA_DIR, ".paused")
+    crash_file = os.path.join(DATA_DIR, ".crash_warned")
+    paused = os.path.exists(pause_file)
+    crash_warned = os.path.exists(crash_file)
+    pause_reason = ""
+    if paused:
+        try:
+            with open(pause_file) as f:
+                pause_reason = f.read()
+        except:
+            pass
+    return {
+        "paused": paused,
+        "crash_warning": crash_warned,
+        "pause_reason": pause_reason,
     }
 
 

@@ -47,24 +47,33 @@ TRADES_FILE = f"{SCANNER_DIR}/trades_loose.json"
 SCAN_LOG = f"{SCANNER_DIR}/scan.log"
 os.makedirs(SCANNER_DIR, exist_ok=True)
 
-# S&P 500 + high-volume mid-caps (abbreviated — top movers)
-# In production, load full list from a file
-SP500_SAMPLE = [
-    "AAPL","MSFT","AMZN","NVDA","GOOGL","META","TSLA","AMD","NFLX","DIS",
-    "BA","NKE","PYPL","SNAP","ROKU","PLTR","SOFI","COIN","HOOD",
-    "RIVN","LCID","NIO","PLUG","FCEL","MARA","RIOT","UPST","AFRM","PATH",
-    "DKNG","PENN","WYNN","MGM","LVS","CCL","RCL","AAL","UAL","DAL",
-    "F","GM","XPEV","LI",
-    "AMC","GME","BB","SPCE","OPEN","QBTS",
-    "INTC","MU","QCOM","AVGO","TSM","ASML","LRCX","AMAT","KLAC",
-    "CRM","SNOW","DDOG","NET","CRWD","ZS","PANW","OKTA","MDB",
-    "SHOP","SE","MELI","BABA","JD","PDD","GRAB","CPNG",
-    "XOM","CVX","OXY","DVN","HAL","SLB","BP","SHEL",
-    "JPM","GS","MS","BAC","WFC","C","SCHW","BLK","KKR",
-    "PFE","MRNA","BNTX","JNJ","ABT","LLY","NVO","UNH",
-    "WMT","COST","TGT","HD","LOW","SBUX","MCD","CMG",
-    "V","MA","AXP","ABNB","UBER","LYFT","DASH",
-]
+# Load full ticker universe from file (4500+ liquid US stocks)
+# Generated from Alpaca assets API — NYSE, NASDAQ, ARCA, tradeable + shortable
+import json as _json
+_TICKERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "all_tickers.json")
+_BLACKLIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blacklist.json")
+try:
+    with open(_TICKERS_FILE) as _f:
+        SP500_SAMPLE = _json.load(_f)
+except:
+    # Fallback if file doesn't exist
+    SP500_SAMPLE = [
+        "AAPL","MSFT","AMZN","NVDA","GOOGL","META","TSLA","AMD","NFLX","DIS",
+        "BA","NKE","PYPL","SNAP","ROKU","PLTR","SOFI","COIN","HOOD",
+        "INTC","MU","QCOM","AVGO","CRM","NET","CRWD","PANW",
+        "XOM","CVX","OXY","DVN","HAL","JPM","GS","BAC","WFC",
+        "PFE","MRNA","JNJ","LLY","UNH","WMT","COST","TGT","HD",
+        "V","MA","ABNB","UBER","LYFT","DASH","F","GM","NIO","XPEV","LI",
+        "BABA","JD","DKNG","LVS","CCL","AAL","DAL",
+    ]
+
+# Load and apply blacklist (stocks that historically never bounce profitably)
+try:
+    with open(_BLACKLIST_FILE) as _f:
+        _BLACKLIST = set(_json.load(_f))
+    SP500_SAMPLE = [t for t in SP500_SAMPLE if t not in _BLACKLIST]
+except:
+    pass  # no blacklist file = scan everything
 
 def load_picks():
     if os.path.exists(PICKS_FILE):
@@ -133,76 +142,122 @@ def _notify_rotation(old_ticker, old_pnl, new_ticker, direction, strike, score):
 # === STEP 1: STOCK SCREEN ===
 
 def screen_stocks():
-    """Screen for oversold bounce and mean-reversion short candidates."""
+    """
+    Two-stage screen for oversold bounce candidates.
+    Stage 1: Bulk fetch 20 days of bars for ALL tickers (few API calls) → compute RSI → pre-filter
+    Stage 2: Deep scan only the ~20-50 that pass pre-filter (full 90-day history)
+    
+    This scans 4500+ stocks in ~30 seconds instead of hours.
+    """
     log(f"Screening {len(SP500_SAMPLE)} stocks...")
-    candidates = []
-
-    for ticker in SP500_SAMPLE:
+    
+    # === STAGE 1: BULK PRE-FILTER ===
+    # Fetch 20 days of data for ALL stocks in batches of 200 (one API call each)
+    if USE_ALPACA_DATA:
+        from data_alpaca import get_bulk_daily_bars
+        all_bars = get_bulk_daily_bars(SP500_SAMPLE, days=20)
+        log(f"  Bulk fetch: got data for {len(all_bars)} stocks")
+    else:
+        # Fallback: fetch one by one (slow)
+        all_bars = {}
+        for ticker in SP500_SAMPLE:
+            df = get_stock_history(ticker, days=20)
+            if not df.empty:
+                all_bars[ticker] = df
+    
+    # Quick RSI + price filter on bulk data
+    pre_filtered = []
+    for ticker, df in all_bars.items():
         try:
+            if len(df) < 14:
+                continue
+            
+            close = df["Close"]
+            price = float(close.iloc[-1])
+            
+            # Basic filters (fast, eliminates 90%+)
+            if price < 5 or price > 150:
+                continue
+            
+            # Quick RSI check
+            rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
+            if pd.isna(rsi) or rsi >= 40:
+                continue
+            
+            # Made it past pre-filter — worth a deeper look
+            pre_filtered.append(ticker)
+        except:
+            continue
+    
+    log(f"  Pre-filter: {len(pre_filtered)} stocks with RSI < 40")
+    
+    if not pre_filtered:
+        log(f"  Found 0 candidates")
+        return []
+    
+    # === STAGE 2: DEEP SCAN (only on pre-filtered stocks) ===
+    # Now fetch full 90-day history for just the candidates
+    candidates = []
+    
+    if USE_ALPACA_DATA:
+        from data_alpaca import get_bulk_daily_bars
+        deep_bars = get_bulk_daily_bars(pre_filtered, days=90)
+    else:
+        deep_bars = {}
+        for ticker in pre_filtered:
             df = get_stock_history(ticker, days=90)
-            if df.empty or len(df) < 50:
+            if not df.empty:
+                deep_bars[ticker] = df
+    
+    for ticker in pre_filtered:
+        try:
+            df = deep_bars.get(ticker)
+            if df is None or len(df) < 50:
                 continue
 
             close = df["Close"]
             volume = df["Volume"]
-            price = close.iloc[-1]
+            price = float(close.iloc[-1])
 
             # Liquidity filter
-            if price < 5 or price > 150:
-                continue
             avg_vol = volume.tail(20).mean()
             if avg_vol < 2_000_000:
                 continue
 
             # Technical indicators
-            rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
-            sma20 = close.tail(20).mean()
-            sma50 = close.tail(50).mean()
-            week_low = close.tail(252).min() if len(close) >= 252 else close.min()
+            rsi = float(ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1])
+            sma50 = float(close.tail(50).mean())
+            sma50_20_ago = float(close.tail(50).iloc[:20].mean())
+            week_low = float(close.tail(252).min() if len(close) >= 252 else close.min())
             pct_from_low = (price - week_low) / week_low * 100
-            move_10d = (price - close.iloc[-11]) / close.iloc[-11] * 100 if len(close) > 11 else 0
-            pct_above_sma20 = (price - sma20) / sma20 * 100
-            today_green = close.iloc[-1] > df["Open"].iloc[-1]
-            today_red = close.iloc[-1] < df["Open"].iloc[-1]
-            vol_ratio = volume.iloc[-1] / avg_vol if avg_vol > 0 else 1
-            atr = (df["High"].tail(14) - df["Low"].tail(14)).mean()
+            move_10d = (price - float(close.iloc[-11])) / float(close.iloc[-11]) * 100 if len(close) > 11 else 0
+            pct_above_sma20 = (price - float(close.tail(20).mean())) / float(close.tail(20).mean()) * 100
+            today_green = float(close.iloc[-1]) > float(df["Open"].iloc[-1])
+            today_red = float(close.iloc[-1]) < float(df["Open"].iloc[-1])
+            vol_ratio = float(volume.iloc[-1] / avg_vol) if avg_vol > 0 else 1
+            atr = float((df["High"].tail(14) - df["Low"].tail(14)).mean())
             atr_pct = atr / price * 100
 
             # ATR filter — want stocks that move
             if atr_pct < 2:
                 continue
 
-            # === FIX #1: TREND FILTER ===
-            # Only buy calls on stocks in an uptrend that are DIPPING, not dying.
-            # Require: 50-SMA is rising (higher than it was 20 days ago)
-            # OR: stock was above 50-SMA within the last 20 days
-            # This kills structural decliners like NIO, GME, LI
-            sma50_20_ago = close.tail(50).iloc[:20].mean() if len(close) >= 50 else sma50
+            # === TREND FILTER ===
             sma50_rising = sma50 > sma50_20_ago
             was_above_50sma_recently = any(close.tail(20) > sma50)
             in_uptrend = sma50_rising or was_above_50sma_recently
 
-            # === FIX #2: RSI HARD MINIMUM ===
-            # Must be genuinely oversold — no RSI 50+ "oversold" picks
+            # === RSI CHECK ===
             rsi_oversold = rsi < 40
 
-            # === FIX #3: VOLUME FILTER ===
-            # For deeply oversold (RSI < 35): skip volume check — the signal is strong enough
-            # For marginal oversold (RSI 35-40): require volume confirmation
+            # === VOLUME FILTER ===
             vol_floor = vol_ratio >= 0.5
             recent_vol_spike = any(volume.tail(5) > avg_vol * 1.3)
             has_volume = vol_floor or recent_vol_spike
-            
-            # Deeply oversold = volume not required
             if rsi < 35:
-                has_volume = True
+                has_volume = True  # deeply oversold bypasses volume check
 
-            # === OVERSOLD BOUNCE CANDIDATE ===
-            # Requirements:
-            #   - In uptrend (dip, not structural decline)
-            #   - RSI < 40 (genuinely oversold)
-            #   - Has volume (or RSI < 35 bypasses this)
-            #   - Plus 2 of 4 confirmation signals
+            # === BOUNCE CONDITIONS ===
             bounce_conditions = sum([
                 pct_from_low < 10,
                 rsi < 35,
@@ -210,6 +265,45 @@ def screen_stocks():
                 recent_vol_spike,
             ])
             if in_uptrend and rsi_oversold and has_volume and bounce_conditions >= 2:
+                # === QUALITY SCORE ===
+                # Measures how likely this stock is to bounce HARD (not just pass filters)
+                quality = 0
+                
+                # 1. Volume strength (higher avg volume = institutional, stronger bounces)
+                #    2M = baseline (0pts), 10M = good (+10), 50M+ = excellent (+20)
+                if avg_vol >= 50_000_000: quality += 20
+                elif avg_vol >= 20_000_000: quality += 15
+                elif avg_vol >= 10_000_000: quality += 10
+                elif avg_vol >= 5_000_000: quality += 5
+                # below 5M = 0 bonus (small cap, weaker bounces)
+                
+                # 2. Selloff speed (sharp drops bounce harder than slow grinds)
+                #    -10% in 5 days = sharp, -3% in 10 days = slow grind
+                move_5d = (price - float(close.iloc[-6])) / float(close.iloc[-6]) * 100 if len(close) > 6 else 0
+                if move_5d <= -8: quality += 15  # sharp drop
+                elif move_5d <= -5: quality += 10
+                elif move_5d <= -3: quality += 5
+                # slow grind = 0 (less likely to snap back)
+                
+                # 3. Distance from 50-SMA (mild dip = better, extreme = might be broken)
+                pct_below_sma50 = (sma50 - price) / sma50 * 100
+                if 2 <= pct_below_sma50 <= 8: quality += 10  # healthy dip
+                elif pct_below_sma50 < 2: quality += 5  # barely dipped
+                # >8% below = 0 (might be structurally broken)
+                
+                # 4. Bounce history (has this stock bounced from oversold before?)
+                #    Check if RSI went <35 and then price was higher 10 days later in recent history
+                try:
+                    rsi_series = ta.momentum.RSIIndicator(close, window=14).rsi()
+                    past_oversold = rsi_series[rsi_series < 35]
+                    if len(past_oversold) >= 2:
+                        quality += 10  # has been oversold before and survived
+                except:
+                    pass
+                
+                # 5. SMA50 trending strongly (rising SMA = stronger support)
+                if sma50_rising: quality += 5
+                
                 candidates.append({
                     "ticker": ticker,
                     "setup": "oversold_bounce",
@@ -221,11 +315,11 @@ def screen_stocks():
                     "atr_pct": round(atr_pct, 1),
                     "move_10d": round(move_10d, 1),
                     "sma50_rising": sma50_rising,
-                    "recent_vol_spike": recent_vol_spike,
+                    "recent_vol_spike": bool(recent_vol_spike),
+                    "quality": quality,
                 })
 
-            # === MEAN REVERSION SHORT CANDIDATE ===
-            # (shorts don't need uptrend filter — they want overextended stocks)
+            # === MEAN REVERSION SHORT ===
             elif move_10d > 25 and today_red and pct_above_sma20 > 20:
                 candidates.append({
                     "ticker": ticker,
@@ -244,10 +338,10 @@ def screen_stocks():
             continue
 
     log(f"  Found {len(candidates)} candidates")
+    # Sort by quality score — best bounce candidates first
+    candidates.sort(key=lambda x: x.get("quality", 0), reverse=True)
     return candidates
 
-
-# === STEP 2: OPTION SELECTION & SCORING ===
 
 def score_and_select_options(candidates):
     """Score candidates, find best option contracts."""
@@ -300,19 +394,57 @@ def score_and_select_options(candidates):
             options["est_delta"] = options.apply(
                 lambda r: max(0, min(1, 0.5 - abs(r["strike"] - c["price"]) / c["price"])), axis=1
             )
-            options = options[
-                (options["openInterest"] > 500) &
-                (options["lastPrice"] >= 0.15) &
-                (options["lastPrice"] <= 1.00) &
-                (options["est_delta"].between(0.25, 0.50))
+            # Option selection: ATM has priority (better win rate)
+            # Only go OTM if ATM options exceed position sizing limit
+            max_cost_per_contract = 110  # $110 max risk per trade (~2% of $5k)
+            min_option_price = 0.10
+            min_oi = 50 if USE_ALPACA_DATA else 500
+            
+            # First try: ATM options (delta 0.30-0.55, no price cap)
+            atm_options = options[
+                (options["openInterest"] > min_oi) &
+                (options["lastPrice"] >= min_option_price) &
+                (options["est_delta"].between(0.30, 0.55))
             ]
-
-            if options.empty:
-                continue
-
-            # Pick highest gamma proxy (closest to ATM with good volume)
-            options["gamma_proxy"] = 1 / (1 + abs(options["strike"] - c["price"]))
-            best = options.nlargest(1, "gamma_proxy").iloc[0]
+            
+            # Pick closest to ATM
+            if not atm_options.empty:
+                atm_options = atm_options.copy()
+                atm_options["atm_dist"] = abs(atm_options["strike"] - c["price"])
+                best_atm = atm_options.nsmallest(1, "atm_dist").iloc[0]
+                
+                # Check if it fits position sizing
+                atm_ask = float(best_atm["ask"]) if best_atm["ask"] > 0 else float(best_atm["lastPrice"]) * 1.05
+                if atm_ask * 100 <= max_cost_per_contract:
+                    # ATM fits — use it
+                    best = best_atm
+                else:
+                    # ATM too expensive — go OTM (cheaper strikes)
+                    otm_options = options[
+                        (options["openInterest"] > min_oi) &
+                        (options["lastPrice"] >= min_option_price) &
+                        (options["lastPrice"] <= max_cost_per_contract / 100) &
+                        (options["est_delta"].between(0.10, 0.55))
+                    ]
+                    if otm_options.empty:
+                        continue
+                    # Pick closest to ATM that still fits budget
+                    otm_options = otm_options.copy()
+                    otm_options["atm_dist"] = abs(otm_options["strike"] - c["price"])
+                    best = otm_options.nsmallest(1, "atm_dist").iloc[0]
+            else:
+                # No ATM options available — try OTM
+                otm_options = options[
+                    (options["openInterest"] > min_oi) &
+                    (options["lastPrice"] >= min_option_price) &
+                    (options["lastPrice"] <= max_cost_per_contract / 100) &
+                    (options["est_delta"].between(0.10, 0.55))
+                ]
+                if otm_options.empty:
+                    continue
+                otm_options = otm_options.copy()
+                otm_options["atm_dist"] = abs(otm_options["strike"] - c["price"])
+                best = otm_options.nsmallest(1, "atm_dist").iloc[0]
 
             bid = float(best["bid"]) if best["bid"] > 0 else float(best["lastPrice"]) * 0.95
             ask = float(best["ask"]) if best["ask"] > 0 else float(best["lastPrice"]) * 1.05
@@ -357,7 +489,7 @@ def score_and_select_options(candidates):
             elif c["setup"] == "mean_reversion_short" and c.get("today_red", True):
                 score += 10
 
-            c["score"] = min(100, score)
+            c["score"] = min(100, score + c.get("quality", 0) // 3)  # quality adds up to ~20 pts
             c["option"] = {
                 "strike": float(best["strike"]),
                 "expiration": valid_exp,
@@ -373,11 +505,52 @@ def score_and_select_options(candidates):
         except:
             continue
 
-    # Sort by score, only take 80+
+    # Sort by score
     scored.sort(key=lambda x: x["score"], reverse=True)
-    top_picks = [s for s in scored if s["score"] >= 60][:5]
+    
+    # Dynamic threshold: adapts to market conditions AND recent performance
+    min_score = 60  # default
+    
+    # Factor 1: Market health (SPY vs 20-SMA)
+    try:
+        if USE_ALPACA_DATA:
+            from data_alpaca import get_daily_bars
+            spy = get_daily_bars("SPY", days=25)
+        else:
+            spy = get_stock_history("SPY", days=25)
+        if not spy.empty and len(spy) >= 20:
+            spy_price = float(spy["Close"].iloc[-1])
+            spy_sma20 = float(spy["Close"].tail(20).mean())
+            spy_pct = (spy_price - spy_sma20) / spy_sma20 * 100
+            
+            if spy_pct < -3:
+                min_score = max(min_score, 75)
+            elif spy_pct < 0:
+                min_score = max(min_score, 68)
+    except:
+        pass
+    
+    # Factor 2: Recent win rate (if losing streak, be more selective)
+    try:
+        recent_trades = load_trades()
+        recent_closed = [t for t in recent_trades if t.get("status") in ("closed", "expired")][-15:]
+        if len(recent_closed) >= 8:
+            recent_wins = sum(1 for t in recent_closed if t.get("pnl", 0) > 0)
+            recent_wr = recent_wins / len(recent_closed)
+            if recent_wr < 0.35:
+                # Losing streak — raise threshold significantly
+                min_score = max(min_score, 78)
+                log(f"  ⚠️ Recent WR {recent_wr:.0%} — tightening threshold to {min_score}")
+            elif recent_wr < 0.45:
+                min_score = max(min_score, 70)
+                log(f"  Recent WR {recent_wr:.0%} — threshold raised to {min_score}")
+    except:
+        pass
+    
+    log(f"  Market threshold: {min_score}")
+    top_picks = [s for s in scored if s["score"] >= min_score][:5]
 
-    log(f"  Scored {len(scored)} candidates, {len(top_picks)} above 60")
+    log(f"  Scored {len(scored)} candidates, {len(top_picks)} above {min_score}")
     return top_picks
 
 
@@ -752,14 +925,126 @@ def check_open_trades():
 
 # === MAIN ===
 
+# === SEASONAL MODES ===
+# Jan, Feb, Oct: cautious mode (puts on overbought stocks)
+# All other months: normal mode (calls on oversold stocks)
+CAUTIOUS_MONTHS = [1, 2, 10]
+
+
+def get_seasonal_mode():
+    """Determine current trading mode based on month."""
+    month = datetime.now().month
+    if month in CAUTIOUS_MONTHS:
+        return "cautious"
+    return "normal"
+
+
+def screen_overbought():
+    """
+    Cautious-mode scanner: find OVERBOUGHT stocks for put trades.
+    Opposite of the normal strategy — look for stocks that ran up too far and are due for pullback.
+    Criteria:
+    - RSI > 70 (overbought)
+    - Price > 20% above 50-SMA (overextended)
+    - Had a big run-up in last 10 days (>15%)
+    - Still in overall uptrend (so it's overextended, not just strong)
+    """
+    log("  CAUTIOUS MODE: Scanning for overbought puts...")
+    
+    if USE_ALPACA_DATA:
+        from data_alpaca import get_bulk_daily_bars
+        all_bars = get_bulk_daily_bars(SP500_SAMPLE, days=20)
+    else:
+        all_bars = {}
+        for ticker in SP500_SAMPLE[:500]:
+            df = get_stock_history(ticker, days=20)
+            if not df.empty: all_bars[ticker] = df
+    
+    # Pre-filter: RSI > 65
+    pre_filtered = []
+    for ticker, df in all_bars.items():
+        try:
+            if len(df) < 14: continue
+            close = df["Close"]
+            price = float(close.iloc[-1])
+            if price < 10 or price > 150: continue
+            rsi = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
+            if pd.isna(rsi) or rsi <= 65: continue
+            pre_filtered.append(ticker)
+        except: continue
+    
+    log(f"  Pre-filter: {len(pre_filtered)} stocks with RSI > 65")
+    if not pre_filtered: return []
+    
+    # Deep scan
+    if USE_ALPACA_DATA:
+        from data_alpaca import get_bulk_daily_bars
+        deep_bars = get_bulk_daily_bars(pre_filtered, days=90)
+    else:
+        deep_bars = {}
+        for ticker in pre_filtered:
+            df = get_stock_history(ticker, days=90)
+            if not df.empty: deep_bars[ticker] = df
+    
+    candidates = []
+    for ticker in pre_filtered:
+        try:
+            df = deep_bars.get(ticker)
+            if df is None or len(df) < 50: continue
+            close = df["Close"]
+            volume = df["Volume"]
+            price = float(close.iloc[-1])
+            avg_vol = volume.tail(20).mean()
+            if avg_vol < 2_000_000: continue
+            
+            rsi = float(ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1])
+            if rsi <= 70: continue
+            
+            sma50 = float(close.tail(50).mean())
+            pct_above_sma50 = (price - sma50) / sma50 * 100
+            if pct_above_sma50 < 15: continue  # needs to be well extended
+            
+            move_10d = (price - float(close.iloc[-11])) / float(close.iloc[-11]) * 100 if len(close) > 11 else 0
+            if move_10d < 10: continue  # needs a recent big run
+            
+            atr = float((df["High"].tail(14) - df["Low"].tail(14)).mean())
+            atr_pct = atr / price * 100
+            if atr_pct < 2: continue
+            
+            today_red = float(close.iloc[-1]) < float(df["Open"].iloc[-1])
+            
+            candidates.append({
+                "ticker": ticker,
+                "setup": "overbought_short",
+                "direction": "PUT",
+                "price": round(price, 2),
+                "rsi": round(rsi, 1),
+                "pct_above_sma50": round(pct_above_sma50, 1),
+                "move_10d": round(move_10d, 1),
+                "atr_pct": round(atr_pct, 1),
+                "today_red": today_red,
+                "vol_ratio": round(float(volume.iloc[-1] / avg_vol), 1) if avg_vol > 0 else 0,
+            })
+        except: continue
+    
+    log(f"  Found {len(candidates)} overbought candidates")
+    return candidates
+
+
 def run_scan():
-    """Full scan pipeline."""
+    """Full scan pipeline with seasonal mode."""
+    mode = get_seasonal_mode()
     log("=" * 50)
-    log("DAILY HIGH-GAMMA MEAN REVERSION SCAN")
+    log(f"DAILY SCAN — MODE: {mode.upper()}")
     log("=" * 50)
 
-    # Step 1: Screen
-    candidates = screen_stocks()
+    if mode == "cautious":
+        # Cautious months: scan for overbought puts
+        candidates = screen_overbought()
+    else:
+        # Normal months: scan for oversold calls
+        candidates = screen_stocks()
+    
     if not candidates:
         log("No candidates found today")
         return []
@@ -769,7 +1054,7 @@ def run_scan():
     save_picks(picks)
 
     if not picks:
-        log("No picks scored above 60")
+        log("No picks scored above threshold")
         return []
 
     # Step 3: Auto-enter
