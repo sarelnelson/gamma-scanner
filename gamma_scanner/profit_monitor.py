@@ -631,7 +631,15 @@ def run_monitor():
                             import importlib, scanner_loose
                             importlib.reload(scanner_loose)
                             from scanner_loose import run_scan
-                            run_scan()
+                            picks = run_scan()
+                            # Update last_scan.json for dashboard
+                            try:
+                                import json as _json
+                                scan_info = {"last_scan_time": datetime.utcnow().isoformat() + "Z", "picks_found": len(picks) if picks else 0, "candidates_found": 0}
+                                scan_path = os.path.join(os.path.dirname(TRADES_FILE), "last_scan.json")
+                                with open(scan_path, "w") as _f:
+                                    _json.dump(scan_info, _f)
+                            except: pass
                         except Exception as e:
                             log(f"Scan error: {e}", "ERROR")
                         scans_completed_today.add(scan_key)
