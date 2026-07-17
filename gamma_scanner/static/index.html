@@ -170,11 +170,12 @@ a:hover { text-decoration: underline; }
 
 <div class="top-bar">
   <div class="logo" onclick="window.location='/'">📈</div>
-  <h1>🎯 Gamma Scanner</h1>
+  <h1>🎯 <span id="user-title">Gamma Scanner</span></h1>
   <div class="nav">
     <button onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;">💳 Fund</button>
     <button id="pause-btn" onclick="togglePause()" style="padding:6px 14px;border-radius:6px;border:1px solid #d29922;background:transparent;color:#d29922;font-size:12px;cursor:pointer;font-weight:600;">⏸ Pause</button>
-    <a href="https://ds-l4ximmxa--8080.us-west-2.prod.proxy.devspaces.amazon.dev/" class="back-link">← Main</a>
+    <button onclick="manualScan()" style="padding:6px 14px;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;font-size:12px;cursor:pointer;font-weight:600;">🔍 Scan</button>
+    <button onclick="switchUser()" style="padding:6px 14px;border-radius:6px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:12px;cursor:pointer;">↺</button>
     <span style="color:#8b949e;font-size:12px;" id="last-update"></span>
     <span><span class="status-dot live"></span></span>
   </div>
@@ -245,6 +246,12 @@ a:hover { text-decoration: underline; }
   <div class="picks-grid" id="picks-grid"></div>
 </div>
 
+<!-- Candidates Section (watched but not traded) -->
+<div class="section" id="candidates-section">
+  <div class="section-title">Candidates (Watching) <span class="count" id="candidates-count">0</span></div>
+  <div id="candidates-list" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+</div>
+
 <!-- Trades Section -->
 <div class="section" id="trades-section">
   <div class="section-title">Open Trades <span class="count" id="trades-count">0</span> <button onclick="closeAll()" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid #f85149;background:transparent;color:#f85149;font-size:11px;cursor:pointer;font-weight:600;">Close All</button></div>
@@ -306,6 +313,34 @@ let currentMode = 'loose';
 let perfData = null;
 let picksData = null;
 
+// User context
+const currentUser = localStorage.getItem('gamma_user') || 'sarel';
+const userName = currentUser.charAt(0).toUpperCase() + currentUser.slice(1);
+document.getElementById('user-title').textContent = userName + "'s Scanner";
+
+function switchUser() {
+  localStorage.removeItem('gamma_user');
+  window.location.href = '/';
+}
+
+async function manualScan() {
+  if (!confirm('Run scanner now?')) return;
+  try {
+    document.querySelector('[onclick="manualScan()"]').textContent = '⏳ Scanning...';
+    const resp = await fetch(`/api/scan?user=${currentUser}`, { method: 'POST' });
+    const data = await resp.json();
+    document.querySelector('[onclick="manualScan()"]').textContent = '🔍 Scan';
+    if (data.error) {
+      alert(data.error);
+    } else {
+      fetchData();  // refresh everything
+    }
+  } catch(e) {
+    document.querySelector('[onclick="manualScan()"]').textContent = '🔍 Scan';
+    alert('Error: ' + e.message);
+  }
+}
+
 function setMode(mode) {
   currentMode = mode;
   document.querySelectorAll('.mode-btn').forEach((btn, i) => {
@@ -320,17 +355,41 @@ function setMode(mode) {
 
 async function fetchData() {
   try {
-    const [perfResp, picksResp] = await Promise.all([
+    const [perfResp, picksResp, candResp] = await Promise.all([
       fetch('/api/performance'),
-      fetch('/api/picks')
+      fetch('/api/picks'),
+      fetch('/api/candidates')
     ]);
     perfData = await perfResp.json();
     picksData = await picksResp.json();
+    const candData = await candResp.json();
+    renderCandidates(candData.candidates || []);
     render();
-    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+    document.getElementById('last-update').textContent = new Date().toLocaleString('en-US', {timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true});
   } catch (e) {
     console.error('Fetch error:', e);
   }
+}
+
+function renderCandidates(candidates) {
+  document.getElementById('candidates-count').textContent = candidates.length;
+  const el = document.getElementById('candidates-list');
+  if (!candidates.length) {
+    el.innerHTML = '<span style="color:#8b949e;font-size:13px;">No candidates found this scan</span>';
+    return;
+  }
+  el.innerHTML = candidates.map(c => {
+    const rsiColor = c.rsi < 30 ? '#3fb950' : c.rsi < 35 ? '#d29922' : '#8b949e';
+    const q = c.quality || 0;
+    const qColor = q >= 40 ? '#3fb950' : q >= 25 ? '#d29922' : '#8b949e';
+    return `<div style="background:#161b22;border:1px solid #21262d;border-radius:8px;padding:8px 12px;font-size:12px;">
+      <span style="font-weight:700;">${c.ticker}</span>
+      <span style="color:${rsiColor};margin-left:6px;">RSI ${c.rsi}</span>
+      <span style="color:${qColor};margin-left:6px;font-weight:600;">Q:${q}</span>
+      <span style="color:#8b949e;margin-left:6px;">${c.direction || 'CALL'}</span>
+      <br><span style="color:#8b949e;font-size:10px;">$${c.price || '?'} | ATR:${c.atr_pct?.toFixed(1)}% | 10d:${c.move_10d?.toFixed(0)}%</span>
+    </div>`;
+  }).join('');
 }
 
 function render() {
@@ -445,7 +504,17 @@ function renderPicks(mode) {
   const grid = document.getElementById('picks-grid');
 
   if (picks.length === 0) {
-    grid.innerHTML = '<div style="color:#8b949e;padding:20px;">No picks found. Scanner may not have run today.</div>';
+    // Show scan status instead of generic message
+    fetch('/api/last-scan').then(r => r.json()).then(scan => {
+      let msg = 'No picks found.';
+      if (scan.last_scan_time) {
+        const pst = new Date(scan.last_scan_time).toLocaleString('en-US', {timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true});
+        msg = `No picks passed threshold. Last scan: ${pst} PST — ${scan.candidates_found} candidates screened, 0 qualified.`;
+      } else {
+        msg = 'Scanner has not run yet today.';
+      }
+      grid.innerHTML = `<div style="color:#8b949e;padding:20px;font-size:13px;">${msg}</div>`;
+    });
     return;
   }
 
@@ -624,7 +693,7 @@ let systemPaused = false;
 
 async function checkPauseStatus() {
   try {
-    const resp = await fetch('/api/status');
+    const resp = await fetch(`/api/status?user=${currentUser}`);
     const data = await resp.json();
     systemPaused = data.paused;
     const btn = document.getElementById('pause-btn');
@@ -645,7 +714,7 @@ async function togglePause() {
   const action = systemPaused ? 'Resume scanning?' : 'Pause scanner? (open positions still monitored)';
   if (!confirm(action)) return;
   try {
-    const resp = await fetch(endpoint, { method: 'POST' });
+    const resp = await fetch(`${endpoint}?user=${currentUser}`, { method: 'POST' });
     const data = await resp.json();
     alert(data.message);
     checkPauseStatus();

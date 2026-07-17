@@ -1047,7 +1047,14 @@ def run_scan():
     
     if not candidates:
         log("No candidates found today")
+        # Save empty candidates
+        with open(os.path.join(os.path.dirname(PICKS_FILE), "candidates.json"), "w") as f:
+            json.dump([], f)
         return []
+
+    # Save candidates for dashboard display (even if none pass scoring)
+    with open(os.path.join(os.path.dirname(PICKS_FILE), "candidates.json"), "w") as f:
+        json.dump(candidates[:20], f, indent=2)  # top 20
 
     # Step 2: Score & select options
     picks = score_and_select_options(candidates)

@@ -1,33 +1,100 @@
 """
 Gamma Scanner — Standalone API Server
-Runs on port 8081, completely independent of the main trading dashboard (8080).
-
-Endpoints:
-  GET /                    — Dashboard UI
-  GET /api/picks           — Today's scanner picks (strict + loose)
-  GET /api/trades          — All trades (open + closed)
-  GET /api/performance     — Performance stats with live P&L
-  GET /api/account         — Account balance and exposure
-  GET /api/health          — Health check (monitor status, last scan time)
-  POST /api/scan           — Trigger a manual scan (only during market hours)
+Multi-user support: each user has their own Alpaca account, positions, and P&L.
 """
-import os, sys, json, time, requests
+import os, sys, json, time, requests, hashlib, secrets
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from broker_alpaca import get_option_quote, build_occ_symbol, get_account, PAPER_MODE, HEADERS as ALPACA_HEADERS, sell_to_close, find_contract
 
-app = FastAPI(title="Gamma Scanner", version="1.0")
+app = FastAPI(title="Gamma Scanner", version="2.0")
 
 # Config
 from config import SCANNER_DIR, DATA_DIR, ALPACA_API_KEY, ALPACA_SECRET_KEY
 ALPACA_DATA_URL = "https://data.alpaca.markets/v2"
 STOCK_HEADERS = {"APCA-API-KEY-ID": ALPACA_API_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY}
 
+# Users config
+USERS_FILE = os.path.join(SCANNER_DIR, "users.json")
+_active_tokens = set()
 
+def load_users():
+    try:
+        with open(USERS_FILE) as f:
+            return json.load(f)
+    except:
+        return {"password": "gamma2026", "users": {"sarel": {"name": "Sarel"}}}
+
+def get_user_data_dir(user_id):
+    """Each user gets their own data directory."""
+    d = os.path.join(DATA_DIR, f"user_{user_id}")
+    os.makedirs(d, exist_ok=True)
+    # Init empty files if needed
+    for f in ["trades.json", "picks.json", "account.json"]:
+        path = os.path.join(d, f)
+        if not os.path.exists(path):
+            if f == "account.json":
+                users = load_users()
+                bal = users.get("users", {}).get(user_id, {}).get("starting_balance", 0)
+                json.dump({"starting_balance": bal, "transactions": []}, open(path, "w"), indent=2)
+            else:
+                json.dump([], open(path, "w"))
+    return d
+
+def load_user_json(user_id, filename, default=None):
+    path = os.path.join(get_user_data_dir(user_id), filename)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except:
+        return default if default is not None else []
+
+def save_user_json(user_id, filename, data):
+    path = os.path.join(get_user_data_dir(user_id), filename)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+# === AUTH ENDPOINTS ===
+
+@app.post("/api/auth/login")
+def login(body: dict):
+    """Verify password and return token + user list."""
+    users_config = load_users()
+    if body.get("password") == users_config.get("password"):
+        token = secrets.token_hex(16)
+        _active_tokens.add(token)
+        user_list = [{"id": uid, "name": u["name"]} for uid, u in users_config.get("users", {}).items()]
+        return {"success": True, "token": token, "users": user_list}
+    return {"success": False}
+
+
+@app.post("/api/auth/logout")
+def logout(token: str = ""):
+    _active_tokens.discard(token)
+    return {"success": True}
+
+
+# === PAGES ===
+
+@app.get("/", response_class=HTMLResponse)
+def login_page():
+    """Serve login page."""
+    with open(os.path.join(SCANNER_DIR, "static/login.html")) as f:
+        return f.read()
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    """Serve the main dashboard."""
+    with open(os.path.join(SCANNER_DIR, "static/index.html")) as f:
+        return f.read()
 def load_json(filename, default=None):
     path = os.path.join(DATA_DIR, filename)
     try:
@@ -37,11 +104,6 @@ def load_json(filename, default=None):
         return default if default is not None else []
 
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard():
-    """Serve the gamma scanner dashboard."""
-    with open(os.path.join(SCANNER_DIR, "static/index.html")) as f:
-        return f.read()
 
 
 @app.get("/api/picks")
@@ -51,6 +113,12 @@ def get_picks():
         "strict": load_json("picks_strict.json"),
         "loose": load_json("picks_loose.json"),
     }
+
+
+@app.get("/api/candidates")
+def get_candidates():
+    """Today's candidates (stocks that passed screening but may not have been traded)."""
+    return {"candidates": load_json("candidates.json")}
 
 
 @app.get("/api/trades")
@@ -221,10 +289,11 @@ def health():
 
 
 @app.post("/api/scan")
-def trigger_scan():
-    """Manually trigger a scan (only works during market hours and not paused)."""
+def trigger_scan(user: str = Query(default="sarel")):
+    """Manually trigger a scan."""
     from market_clock import is_market_open
-    pause_file = os.path.join(DATA_DIR, ".paused")
+    user_dir = get_user_data_dir(user)
+    pause_file = os.path.join(user_dir, ".paused")
     if os.path.exists(pause_file):
         return {"error": "Scanner is PAUSED. Unpause first.", "triggered": False}
     if not is_market_open():
@@ -232,6 +301,16 @@ def trigger_scan():
 
     from scanner_loose import run_scan
     picks = run_scan()
+    
+    # Save scan metadata
+    scan_info = {
+        "last_scan_time": datetime.utcnow().isoformat() + "Z",
+        "picks_found": len(picks),
+        "candidates_found": len(load_json("candidates.json")),
+    }
+    with open(os.path.join(DATA_DIR, "last_scan.json"), "w") as f:
+        json.dump(scan_info, f)
+    
     return {
         "triggered": True,
         "picks_found": len(picks),
@@ -239,32 +318,39 @@ def trigger_scan():
     }
 
 
+@app.get("/api/last-scan")
+def last_scan_info():
+    """Get info about the most recent scan."""
+    return load_json("last_scan.json", default={"last_scan_time": None, "picks_found": 0, "candidates_found": 0})
+
+
 @app.post("/api/pause")
-def pause_scanner():
-    """Pause the scanner — no new entries, but still monitors open positions."""
-    pause_file = os.path.join(DATA_DIR, ".paused")
+def pause_scanner(user: str = Query(default="sarel")):
+    """Pause scanner for a specific user."""
+    pause_file = os.path.join(get_user_data_dir(user), ".paused")
     with open(pause_file, 'w') as f:
         f.write(f"Manually paused at {datetime.utcnow().isoformat()}")
-    return {"paused": True, "message": "Scanner paused. Open positions still monitored. No new entries."}
+    return {"paused": True, "user": user, "message": f"{user}'s scanner paused. Open positions still monitored."}
 
 
 @app.post("/api/unpause")
-def unpause_scanner():
-    """Resume the scanner — allow new entries again."""
-    pause_file = os.path.join(DATA_DIR, ".paused")
-    crash_file = os.path.join(DATA_DIR, ".crash_warned")
+def unpause_scanner(user: str = Query(default="sarel")):
+    """Resume scanner for a specific user."""
+    pause_file = os.path.join(get_user_data_dir(user), ".paused")
+    crash_file = os.path.join(get_user_data_dir(user), ".crash_warned")
     if os.path.exists(pause_file):
         os.remove(pause_file)
     if os.path.exists(crash_file):
         os.remove(crash_file)
-    return {"paused": False, "message": "Scanner resumed. Will enter new trades on next scan."}
+    return {"paused": False, "user": user, "message": f"{user}'s scanner resumed."}
 
 
 @app.get("/api/status")
-def get_status():
-    """Get pause/crash status."""
-    pause_file = os.path.join(DATA_DIR, ".paused")
-    crash_file = os.path.join(DATA_DIR, ".crash_warned")
+def get_status(user: str = Query(default="sarel")):
+    """Get pause/crash status for a specific user."""
+    user_dir = get_user_data_dir(user)
+    pause_file = os.path.join(user_dir, ".paused")
+    crash_file = os.path.join(user_dir, ".crash_warned")
     paused = os.path.exists(pause_file)
     crash_warned = os.path.exists(crash_file)
     pause_reason = ""
@@ -278,6 +364,7 @@ def get_status():
         "paused": paused,
         "crash_warning": crash_warned,
         "pause_reason": pause_reason,
+        "user": user,
     }
 
 

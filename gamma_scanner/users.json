@@ -1,0 +1,17 @@
+{
+  "password": "gamma2026",
+  "users": {
+    "sarel": {
+      "name": "Sarel",
+      "alpaca_key": "PKOMKRLONHFRTJIPY3OTSRQYDP",
+      "alpaca_secret": "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4",
+      "starting_balance": 5000
+    },
+    "yonah": {
+      "name": "Yonah",
+      "alpaca_key": "",
+      "alpaca_secret": "",
+      "starting_balance": 0
+    }
+  }
+}
