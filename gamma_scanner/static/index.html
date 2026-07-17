@@ -356,7 +356,7 @@ function setMode(mode) {
 async function fetchData() {
   try {
     const [perfResp, picksResp, candResp] = await Promise.all([
-      fetch('/api/performance'),
+      fetch(`/api/performance?user=${currentUser}`),
       fetch('/api/picks'),
       fetch('/api/candidates')
     ]);
@@ -774,7 +774,7 @@ async function submitFunding() {
   
   const endpoint = fundType === 'deposit' ? '/api/account/deposit' : '/api/account/withdraw';
   try {
-    const resp = await fetch(`${endpoint}?amount=${amount}&note=${encodeURIComponent(note)}`, { method: 'POST' });
+    const resp = await fetch(`${endpoint}?amount=${amount}&note=${encodeURIComponent(note)}&user=${currentUser}`, { method: 'POST' });
     const data = await resp.json();
     
     resultEl.style.display = 'block';
@@ -804,9 +804,9 @@ document.getElementById('funding-modal')?.addEventListener('click', function(e) 
 
 // Close functions
 async function closeTrade(ticker) {
-  if (!confirm(`Close all ${ticker} positions at current bid?`)) return;
+  if (!confirm(`Close all ${ticker} positions?`)) return;
   try {
-    const resp = await fetch(`/api/close/${ticker}`, { method: 'POST' });
+    const resp = await fetch(`/api/close/${ticker}?user=${currentUser}`, { method: 'POST' });
     const data = await resp.json();
     alert(data.message);
     fetchData();
@@ -816,9 +816,9 @@ async function closeTrade(ticker) {
 }
 
 async function closeAll() {
-  if (!confirm('Close ALL open positions at current bid? This cannot be undone.')) return;
+  if (!confirm('Close ALL open positions? This cannot be undone.')) return;
   try {
-    const resp = await fetch('/api/close-all', { method: 'POST' });
+    const resp = await fetch(`/api/close-all?user=${currentUser}`, { method: 'POST' });
     const data = await resp.json();
     alert(data.message);
     fetchData();

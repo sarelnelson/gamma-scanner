@@ -234,10 +234,33 @@ def get_stock_price(ticker):
         return None
 
 
-def check_positions():
+def check_all_users():
+    """Check positions for every active user."""
+    try:
+        from user_manager import get_active_users, load_user_trades, save_user_trades
+        users = get_active_users()
+    except:
+        users = ["sarel"]  # fallback
+    
+    for user_id in users:
+        try:
+            from user_manager import load_user_trades, save_user_trades
+            trades = load_user_trades(user_id)
+            if not trades:
+                continue
+            open_t = [t for t in trades if t.get("status") == "open"]
+            if not open_t:
+                continue
+            updated_trades = check_positions_for_trades(trades, user_id)
+            save_user_trades(user_id, updated_trades)
+        except Exception as e:
+            log(f"Error checking {user_id}: {e}", "ERROR")
+
+
+def check_positions_for_trades(trades, user_id=""):
     """
-    Core monitoring loop iteration.
-    Checks all open positions for profit target.
+    Core monitoring — checks a list of trades for exit conditions.
+    Returns the updated trades list.
     
     EXIT LOGIC:
     - Take profit when option BID >= 2x entry cost (i.e., +100% gain)
@@ -253,13 +276,13 @@ def check_positions():
     - Positions expiring today: check if ITM, close if worth exercising
     - Positions expired: mark as expired with final P&L
     """
-    trades = load_trades()
     open_trades = [t for t in trades if t.get("status") == "open"]
     
     if not open_trades:
-        return
+        return trades
     
-    log(f"Checking {len(open_trades)} open positions...")
+    prefix = f"[{user_id}] " if user_id else ""
+    log(f"{prefix}Checking {len(open_trades)} open positions...")
     modified = False
     
     for trade in trades:
@@ -433,8 +456,7 @@ def check_positions():
             status_icon = "🟢" if pnl_pct > 0 else "🔴" if pnl_pct < -20 else "⚪"
             log(f"  {status_icon} {ticker} {direction} ${strike}: bid=${bid:.2f} | P&L: {pnl_pct:+.0f}%{floor_str} (${pnl_dollars:+.2f})")
     
-    if modified:
-        save_trades(trades)
+    return trades
 
 
 def run_monitor():
@@ -519,12 +541,12 @@ def run_monitor():
                     scans_completed_today = set()
                 if now.hour == 20 and now.minute < 5:
                     log("Market just closed — final position check")
-                    check_positions()
+                    check_all_users()
                 time.sleep(300)
                 continue
             
             # Check positions every cycle (always runs, even if paused)
-            check_positions()
+            check_all_users()
             consecutive_errors = 0
             
             # === CRASH DETECTION (check every 10 cycles = ~20 min) ===

@@ -1064,14 +1064,69 @@ def run_scan():
         log("No picks scored above threshold")
         return []
 
-    # Step 3: Auto-enter
-    auto_enter_picks(picks)
+    # Step 3: Auto-enter for each active user (unless paused)
+    from user_manager import get_active_users, is_user_paused, load_user_trades, save_user_trades, get_user_balance, get_user_deployed
+    
+    for user_id in get_active_users():
+        if is_user_paused(user_id):
+            log(f"  {user_id}: PAUSED — skipping entries")
+            continue
+        _enter_picks_for_user(picks, user_id)
 
     # Note: profit_monitor.py handles exit checks continuously during market hours.
-    # Don't call check_open_trades() here to avoid race conditions on the trades file.
-
-    log(f"Scan complete: {len(picks)} new picks entered")
+    log(f"Scan complete: {len(picks)} picks found")
     return picks
+
+
+def _enter_picks_for_user(picks, user_id):
+    """Enter picks for a specific user based on their balance/positions."""
+    from user_manager import load_user_trades, save_user_trades, get_user_balance, get_user_deployed
+    
+    trades = load_user_trades(user_id)
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    
+    today_entries = [t for t in trades if t.get("entry_date") == today]
+    if len(today_entries) >= MAX_DAILY_ENTRIES:
+        return
+    
+    open_trades = [t for t in trades if t.get("status") == "open"]
+    if len(open_trades) >= MAX_OPEN_POSITIONS:
+        return
+    
+    balance = get_user_balance(user_id)
+    if balance <= 0:
+        log(f"  {user_id}: No balance — skipping")
+        return
+    
+    deployed = get_user_deployed(user_id)
+    max_deploy = balance * (MAX_TOTAL_EXPOSURE_PCT / 100)
+    max_per_trade = balance * (MAX_RISK_PER_TRADE_PCT / 100)
+    available = max_deploy - deployed
+    
+    if available <= 0:
+        return
+    
+    entries_today = len(today_entries)
+    for pick in picks:
+        if entries_today >= MAX_DAILY_ENTRIES:
+            break
+        
+        ticker = pick["ticker"]
+        opt = pick["option"]
+        fill_price = opt["ask"] + ENTRY_SLIPPAGE
+        cost_per_contract = round(fill_price * 100, 2)
+        
+        if cost_per_contract > max_per_trade or cost_per_contract > available:
+            continue
+        
+        trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
+        trades.append(trade)
+        available -= cost_per_contract
+        entries_today += 1
+        log(f"  {user_id}: ENTERED {ticker} {pick['direction']} ${opt['strike']} (score:{pick['score']}) cost:${cost_per_contract:.0f}")
+    
+    save_user_trades(user_id, trades)
 
 
 def get_performance():

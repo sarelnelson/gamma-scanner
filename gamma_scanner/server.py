@@ -122,19 +122,22 @@ def get_candidates():
 
 
 @app.get("/api/trades")
-def get_trades():
-    """All trades — open and closed."""
+def get_trades(user: str = Query(default="sarel")):
+    """All trades for a specific user."""
+    from user_manager import load_user_trades
+    trades = load_user_trades(user)
     return {
-        "strict": load_json("trades_strict.json"),
-        "loose": load_json("trades_loose.json"),
+        "strict": [],
+        "loose": trades,
     }
 
 
 @app.get("/api/performance")
-def get_performance():
-    """Performance stats with live P&L from real option bids."""
-    strict_trades = load_json("trades_strict.json")
-    loose_trades = load_json("trades_loose.json")
+def get_performance(user: str = Query(default="sarel")):
+    """Performance stats for a specific user."""
+    from user_manager import load_user_trades
+    strict_trades = []
+    loose_trades = load_user_trades(user)
 
     def calc_stats(trades):
         if not trades:
@@ -199,16 +202,19 @@ def get_performance():
 
 
 @app.get("/api/account")
-def account_info():
-    """Account balance, exposure, and broker status."""
-    from scanner_loose import get_account_balance, get_capital_deployed, MAX_TOTAL_EXPOSURE_PCT
-    from account import get_account_summary, get_cash_basis
+def account_info(user: str = Query(default="sarel")):
+    """Account balance for a specific user."""
+    from user_manager import get_user_balance, get_user_deployed, load_user_account
+    from scanner_loose import MAX_TOTAL_EXPOSURE_PCT
     
-    balance = get_account_balance()
-    deployed = get_capital_deployed()
-    max_deploy = balance * (MAX_TOTAL_EXPOSURE_PCT / 100)
-    cash_basis = get_cash_basis()
-    summary = get_account_summary()
+    balance = get_user_balance(user)
+    deployed = get_user_deployed(user)
+    max_deploy = balance * (MAX_TOTAL_EXPOSURE_PCT / 100) if balance > 0 else 0
+    account = load_user_account(user)
+    base = account.get("starting_balance", 0)
+    deposits = sum(t["amount"] for t in account.get("transactions", []) if t["type"] == "deposit")
+    withdrawals = sum(t["amount"] for t in account.get("transactions", []) if t["type"] == "withdrawal")
+    cash_basis = base + deposits - withdrawals
 
     broker = get_account()
     return {
@@ -221,24 +227,31 @@ def account_info():
             "available_for_trades": round(max_deploy - deployed, 2),
             "exposure_pct": round(deployed / balance * 100, 1) if balance > 0 else 0,
         },
-        "funding": summary,
+        "funding": account,
         "broker": broker if broker else {"status": "disconnected"},
         "broker_mode": "PAPER" if PAPER_MODE else "LIVE",
     }
 
 
 @app.post("/api/account/deposit")
-def deposit_funds(amount: float, note: str = ""):
-    """Add funds to the trading account."""
-    from account import deposit
-    return deposit(amount, note)
+def deposit_funds(amount: float, note: str = "", user: str = Query(default="sarel")):
+    """Add funds to a user's account."""
+    from user_manager import load_user_account, save_user_account
+    account = load_user_account(user)
+    account["transactions"].append({"type": "deposit", "amount": round(amount, 2), "date": datetime.utcnow().isoformat(), "note": note or f"Deposit ${amount:.2f}"})
+    save_user_account(user, account)
+    from user_manager import get_user_balance
+    return {"success": True, "deposited": amount, "new_balance": round(get_user_balance(user), 2)}
 
 
 @app.post("/api/account/withdraw")
-def withdraw_funds(amount: float, note: str = ""):
-    """Withdraw funds from the trading account."""
-    from account import withdraw
-    return withdraw(amount, note)
+def withdraw_funds(amount: float, note: str = "", user: str = Query(default="sarel")):
+    """Withdraw funds from a user's account."""
+    from user_manager import load_user_account, save_user_account, get_user_balance
+    account = load_user_account(user)
+    account["transactions"].append({"type": "withdrawal", "amount": round(amount, 2), "date": datetime.utcnow().isoformat(), "note": note or f"Withdrawal ${amount:.2f}"})
+    save_user_account(user, account)
+    return {"success": True, "withdrawn": amount, "new_balance": round(get_user_balance(user), 2)}
 
 
 @app.post("/api/account/set-balance")
@@ -369,10 +382,11 @@ def get_status(user: str = Query(default="sarel")):
 
 
 @app.post("/api/close/{ticker}")
-def close_position(ticker: str):
-    """Manually close an open position by ticker. Submits real sell order via broker."""
+def close_position(ticker: str, user: str = Query(default="sarel")):
+    """Manually close an open position for a specific user."""
     ticker = ticker.upper()
-    trades = load_json("trades_loose.json")
+    from user_manager import load_user_trades, save_user_trades
+    trades = load_user_trades(user)
     
     closed_count = 0
     total_pnl = 0
@@ -447,12 +461,14 @@ def close_position(ticker: str):
                 closed_count += 1
                 total_pnl += pnl_dollars
                 results.append({"ticker": ticker, "status": "no_contract", "pnl": pnl_dollars})
-    
     if closed_count > 0:
-        tmp = os.path.join(SCANNER_DIR, "trades_loose.json.tmp")
-        with open(tmp, "w") as f:
-            json.dump(trades, f, indent=2)
-        os.replace(tmp, os.path.join(SCANNER_DIR, "trades_loose.json"))
+        save_user_trades(user, trades)
+
+
+
+
+
+
     
     return {
         "ticker": ticker,
@@ -464,9 +480,10 @@ def close_position(ticker: str):
 
 
 @app.post("/api/close-all")
-def close_all_positions():
-    """Manually close ALL open positions via broker."""
-    trades = load_json("trades_loose.json")
+def close_all_positions(user: str = Query(default="sarel")):
+    """Manually close ALL open positions for a user."""
+    from user_manager import load_user_trades, save_user_trades
+    trades = load_user_trades(user)
     from broker_alpaca import sell_to_close, find_contract, PAPER_MODE
     
     closed_count = 0
@@ -517,10 +534,7 @@ def close_all_positions():
         results.append({"ticker": ticker, "pnl": pnl_dollars})
     
     if closed_count > 0:
-        tmp = os.path.join(SCANNER_DIR, "trades_loose.json.tmp")
-        with open(tmp, "w") as f:
-            json.dump(trades, f, indent=2)
-        os.replace(tmp, os.path.join(SCANNER_DIR, "trades_loose.json"))
+        save_user_trades(user, trades)
     
     return {
         "closed": closed_count,
