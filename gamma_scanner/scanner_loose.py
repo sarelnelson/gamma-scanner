@@ -1070,14 +1070,22 @@ def _enter_picks_for_user(picks, user_id):
     if len(open_trades) >= MAX_OPEN_POSITIONS:
         return
     
-    # Reality check: can't deploy more than account balance
-    balance = get_user_balance(user_id)
-    deployed = get_user_deployed(user_id)
-    available = balance - deployed  # what the broker would actually let you spend
+    # Capital check: only enforce if account has been explicitly funded
+    # Unfunded = no transactions in account.json = paper tracking, no limits
+    from user_manager import load_user_account
+    account = load_user_account(user_id)
+    is_funded = len(account.get("transactions", [])) > 0
     
-    if available <= 0:
-        log(f"  {user_id}: fully deployed (${deployed:.0f}/${balance:.0f}) — no new entries")
-        return
+    available = float('inf')  # unfunded = unlimited
+    if is_funded:
+        balance = get_user_balance(user_id)
+        deployed = get_user_deployed(user_id)
+        available = balance - deployed
+        
+        if available <= 0:
+            log(f"  {user_id}: fully deployed (${deployed:.0f}/${balance:.0f}) — no new entries")
+            # Still process queue in case something freed up
+            return
     
     entries_today = len(today_entries)
     today_tickers = set(t["ticker"] for t in today_entries)

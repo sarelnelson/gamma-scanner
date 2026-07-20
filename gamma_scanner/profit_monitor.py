@@ -548,6 +548,13 @@ def run_monitor():
                 # Reset scan tracker at midnight
                 if now.hour == 0:
                     scans_completed_today = set()
+                    # Clear trade queues daily
+                    try:
+                        from user_manager import get_active_users
+                        from trade_queue import clear_daily_queue
+                        for uid in get_active_users():
+                            clear_daily_queue(uid)
+                    except: pass
                 if now.hour == 20 and now.minute < 5:
                     log("Market just closed — final position check")
                     check_all_users()
