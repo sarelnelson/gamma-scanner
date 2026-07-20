@@ -375,7 +375,7 @@ def score_and_select_options(candidates):
 
             # Get option chain
             if USE_ALPACA_DATA:
-                chain_data = get_option_chain(ticker, valid_exp)
+                chain_data = get_option_chain(ticker, valid_exp, stock_price=c["price"])
                 if not chain_data:
                     continue
                 options = chain_data["calls"] if c["direction"] == "CALL" else chain_data["puts"]
@@ -394,57 +394,31 @@ def score_and_select_options(candidates):
             options["est_delta"] = options.apply(
                 lambda r: max(0, min(1, 0.5 - abs(r["strike"] - c["price"]) / c["price"])), axis=1
             )
-            # Option selection: ATM has priority (better win rate)
-            # Only go OTM if ATM options exceed position sizing limit
-            max_cost_per_contract = 110  # $110 max risk per trade (~2% of $5k)
-            min_option_price = 0.10
+            # Option selection: pick the closest-to-ATM option with volume
+            # No price cap. Volume/OI is all that matters for execution.
             min_oi = 50 if USE_ALPACA_DATA else 500
             
-            # First try: ATM options (delta 0.30-0.55, no price cap)
-            atm_options = options[
+            # Filter: must have some activity (OI > 50) and a real price
+            tradeable = options[
                 (options["openInterest"] > min_oi) &
-                (options["lastPrice"] >= min_option_price) &
-                (options["est_delta"].between(0.30, 0.55))
+                (options["lastPrice"] > 0)
             ]
             
-            # Pick closest to ATM
-            if not atm_options.empty:
-                atm_options = atm_options.copy()
-                atm_options["atm_dist"] = abs(atm_options["strike"] - c["price"])
-                best_atm = atm_options.nsmallest(1, "atm_dist").iloc[0]
-                
-                # Check if it fits position sizing
-                atm_ask = float(best_atm["ask"]) if best_atm["ask"] > 0 else float(best_atm["lastPrice"]) * 1.05
-                if atm_ask * 100 <= max_cost_per_contract:
-                    # ATM fits — use it
-                    best = best_atm
-                else:
-                    # ATM too expensive — go OTM (cheaper strikes)
-                    otm_options = options[
-                        (options["openInterest"] > min_oi) &
-                        (options["lastPrice"] >= min_option_price) &
-                        (options["lastPrice"] <= max_cost_per_contract / 100) &
-                        (options["est_delta"].between(0.10, 0.55))
-                    ]
-                    if otm_options.empty:
-                        continue
-                    # Pick closest to ATM that still fits budget
-                    otm_options = otm_options.copy()
-                    otm_options["atm_dist"] = abs(otm_options["strike"] - c["price"])
-                    best = otm_options.nsmallest(1, "atm_dist").iloc[0]
-            else:
-                # No ATM options available — try OTM
-                otm_options = options[
-                    (options["openInterest"] > min_oi) &
-                    (options["lastPrice"] >= min_option_price) &
-                    (options["lastPrice"] <= max_cost_per_contract / 100) &
-                    (options["est_delta"].between(0.10, 0.55))
-                ]
-                if otm_options.empty:
-                    continue
-                otm_options = otm_options.copy()
-                otm_options["atm_dist"] = abs(otm_options["strike"] - c["price"])
-                best = otm_options.nsmallest(1, "atm_dist").iloc[0]
+            # If no OI data (Alpaca approximation), just require a price
+            if tradeable.empty:
+                tradeable = options[options["lastPrice"] > 0]
+            
+            if tradeable.empty:
+                # Last resort: any option with bid > 0
+                tradeable = options[options["bid"] > 0]
+            
+            if tradeable.empty:
+                continue
+            
+            # Pick closest to ATM (highest gamma, best leverage)
+            tradeable = tradeable.copy()
+            tradeable["atm_dist"] = abs(tradeable["strike"] - c["price"])
+            best = tradeable.nsmallest(1, "atm_dist").iloc[0]
 
             bid = float(best["bid"]) if best["bid"] > 0 else float(best["lastPrice"]) * 0.95
             ask = float(best["ask"]) if best["ask"] > 0 else float(best["lastPrice"]) * 1.05
@@ -731,9 +705,6 @@ def auto_enter_picks(picks):
         fill_price = opt["ask"] + ENTRY_SLIPPAGE
         cost_per_contract = round(fill_price * 100, 2)
 
-        if cost_per_contract > max_per_trade:
-            log(f"  SKIP {ticker}: cost ${cost_per_contract:.0f} exceeds max per trade ${max_per_trade:.0f}")
-            continue
 
         # Determine if we need to rotate or can just add
         need_rotation = len(open_trades) >= MAX_OPEN_POSITIONS or available < cost_per_contract
@@ -747,7 +718,7 @@ def auto_enter_picks(picks):
             trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
             trades.append(trade)
             held_tickers.add(ticker)
-            available -= cost_per_contract
+    
             entries_today += 1
             open_trades.append(trade)  # track for subsequent rotation checks
             log(f"  ENTERED: {ticker} {pick['direction']} ${opt['strike']} {opt['expiration']} (score:{pick['score']}) cost:${cost_per_contract:.0f}")
@@ -814,7 +785,7 @@ def auto_enter_picks(picks):
             
             trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
             trades.append(trade)
-            available -= cost_per_contract
+    
             entries_today += 1
             rotation_idx += 1
             
@@ -1094,19 +1065,6 @@ def _enter_picks_for_user(picks, user_id):
     if len(open_trades) >= MAX_OPEN_POSITIONS:
         return
     
-    balance = get_user_balance(user_id)
-    if balance <= 0:
-        log(f"  {user_id}: No balance — skipping")
-        return
-    
-    deployed = get_user_deployed(user_id)
-    max_deploy = balance * (MAX_TOTAL_EXPOSURE_PCT / 100)
-    max_per_trade = balance * (MAX_RISK_PER_TRADE_PCT / 100)
-    available = max_deploy - deployed
-    
-    if available <= 0:
-        return
-    
     entries_today = len(today_entries)
     for pick in picks:
         if entries_today >= MAX_DAILY_ENTRIES:
@@ -1117,12 +1075,10 @@ def _enter_picks_for_user(picks, user_id):
         fill_price = opt["ask"] + ENTRY_SLIPPAGE
         cost_per_contract = round(fill_price * 100, 2)
         
-        if cost_per_contract > max_per_trade or cost_per_contract > available:
-            continue
         
         trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
         trades.append(trade)
-        available -= cost_per_contract
+
         entries_today += 1
         log(f"  {user_id}: ENTERED {ticker} {pick['direction']} ${opt['strike']} (score:{pick['score']}) cost:${cost_per_contract:.0f}")
     

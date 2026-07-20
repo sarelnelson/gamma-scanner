@@ -121,9 +121,10 @@ def get_bulk_daily_bars(tickers: list, days: int = 20) -> dict:
     return results
 
 
-def get_option_chain(ticker: str, expiration: str = None):
+def get_option_chain(ticker: str, expiration: str = None, stock_price: float = None):
     """
     Get option chain from Alpaca for a specific expiration date.
+    Filters to strikes near current price for relevant contracts.
     Returns calls and puts DataFrames.
     """
     _rate_limit()
@@ -136,6 +137,10 @@ def get_option_chain(ticker: str, expiration: str = None):
         }
         if expiration:
             params["expiration_date"] = expiration
+        # Filter strikes to +/- 20% of stock price (gets near-ATM options)
+        if stock_price:
+            params["strike_price_gte"] = str(round(stock_price * 0.85, 2))
+            params["strike_price_lte"] = str(round(stock_price * 1.15, 2))
             
         resp = requests.get(
             f"https://paper-api.alpaca.markets/v2/options/contracts",
