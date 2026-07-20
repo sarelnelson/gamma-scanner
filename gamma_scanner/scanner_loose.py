@@ -1096,8 +1096,20 @@ def _enter_picks_for_user(picks, user_id):
         fill_price = opt["ask"] + ENTRY_SLIPPAGE
         cost_per_contract = round(fill_price * 100, 2)
         
-        # Can't spend more than available
+        # Can't spend more than available — add to queue
         if cost_per_contract > available:
+            from trade_queue import add_to_queue
+            add_to_queue(user_id, {
+                "ticker": ticker,
+                "direction": pick["direction"],
+                "setup": pick.get("setup", "oversold_bounce"),
+                "score": pick.get("score", 0),
+                "entry_price": pick.get("price", 0),
+                "option_strike": opt["strike"],
+                "option_exp": opt["expiration"],
+                "option_cost": round(fill_price, 2),
+            })
+            log(f"  {user_id}: QUEUED {ticker} (need ${cost_per_contract:.0f}, have ${available:.0f})")
             continue
         
         trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
@@ -1108,6 +1120,12 @@ def _enter_picks_for_user(picks, user_id):
         log(f"  {user_id}: ENTERED {ticker} {pick['direction']} ${opt['strike']} (score:{pick['score']}) cost:${cost_per_contract:.0f}")
     
     save_user_trades(user_id, trades)
+    
+    # Process any queued trades that now have funds
+    from trade_queue import process_queue_on_scan
+    entered_from_queue = process_queue_on_scan(user_id)
+    for t in entered_from_queue:
+        log(f"  {user_id}: FROM QUEUE → {t['ticker']} {t['direction']} ${t['option_strike']} cost:${t['cost_per_contract']:.0f}")
 
 
 def get_performance():

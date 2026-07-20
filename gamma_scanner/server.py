@@ -568,7 +568,19 @@ def add_contract(ticker: str, user: str = Query(default="sarel")):
     cost = open_position.get("cost_per_contract", 0)
     
     if cost > available:
-        return {"error": f"Insufficient funds. Need ${cost:.0f}, have ${available:.0f} available.", "success": False}
+        # Can't afford — add to front of queue (priority)
+        from trade_queue import add_to_queue
+        add_to_queue(user, {
+            "ticker": ticker,
+            "direction": open_position["direction"],
+            "setup": "manual_add",
+            "score": open_position.get("score", 0),
+            "entry_price": open_position.get("current_price", open_position["entry_price"]),
+            "option_strike": open_position["option_strike"],
+            "option_exp": open_position["option_exp"],
+            "option_cost": open_position.get("current_option_bid", open_position["option_cost"]),
+        }, priority=True)
+        return {"success": True, "queued": True, "message": f"{ticker} added to queue (need ${cost:.0f}, have ${available:.0f}). Will fill when funds available."}
     
     # Create a new trade entry duplicating the position
     from datetime import datetime
@@ -604,3 +616,79 @@ def add_contract(ticker: str, user: str = Query(default="sarel")):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8081)
+
+
+@app.get("/api/queue")
+def get_queue(user: str = Query(default="sarel")):
+    """Get user's trade queue."""
+    from trade_queue import load_queue
+    return {"queue": load_queue(user)}
+
+
+@app.post("/api/queue/buy/{ticker}")
+def buy_from_queue(ticker: str, user: str = Query(default="sarel")):
+    """Manually buy a queued trade."""
+    ticker = ticker.upper()
+    from trade_queue import load_queue, save_queue
+    from user_manager import load_user_trades, save_user_trades, get_user_balance, get_user_deployed
+    from data_alpaca import get_option_quote
+    from broker_alpaca import build_occ_symbol
+    
+    queue = load_queue(user)
+    target = None
+    target_idx = None
+    for i, item in enumerate(queue):
+        if item.get("ticker") == ticker:
+            target = item
+            target_idx = i
+            break
+    
+    if not target:
+        return {"error": f"{ticker} not in queue", "success": False}
+    
+    # Get fresh quote
+    symbol = build_occ_symbol(ticker, target["option_exp"], target.get("direction", "CALL"), target["option_strike"])
+    quote = get_option_quote(symbol)
+    
+    if not quote or quote.get("ask", 0) <= 0:
+        return {"error": "Can't get current price", "success": False}
+    
+    current_ask = quote["ask"]
+    cost = round(current_ask * 100, 2)
+    
+    # Check funds
+    balance = get_user_balance(user)
+    deployed = get_user_deployed(user)
+    available = balance - deployed
+    
+    if cost > available:
+        return {"error": f"Need ${cost:.0f}, have ${available:.0f} available", "success": False}
+    
+    # Enter trade
+    from datetime import datetime
+    trades = load_user_trades(user)
+    trade = {
+        "ticker": ticker,
+        "direction": target.get("direction", "CALL"),
+        "setup": target.get("setup", "queued"),
+        "score": target.get("score", 0),
+        "entry_price": target.get("entry_price", 0),
+        "entry_date": datetime.now().strftime("%Y-%m-%d"),
+        "entry_time": datetime.now().isoformat(),
+        "option_strike": target["option_strike"],
+        "option_exp": target["option_exp"],
+        "option_cost": round(current_ask, 2),
+        "cost_per_contract": cost,
+        "status": "open",
+        "pnl": 0,
+        "current_pnl": 0.0,
+        "from_queue": True,
+    }
+    trades.append(trade)
+    save_user_trades(user, trades)
+    
+    # Remove from queue
+    queue.pop(target_idx)
+    save_queue(user, queue)
+    
+    return {"success": True, "ticker": ticker, "cost": cost, "message": f"Bought {ticker} at ${current_ask:.2f}"}

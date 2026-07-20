@@ -248,11 +248,20 @@ def check_all_users():
             trades = load_user_trades(user_id)
             if not trades:
                 continue
-            open_t = [t for t in trades if t.get("status") == "open"]
-            if not open_t:
-                continue
+            open_before = sum(1 for t in trades if t.get("status") == "open")
             updated_trades = check_positions_for_trades(trades, user_id)
+            open_after = sum(1 for t in updated_trades if t.get("status") == "open")
             save_user_trades(user_id, updated_trades)
+            
+            # If any trades closed, try to fill from queue
+            if open_after < open_before:
+                try:
+                    from trade_queue import process_queue_on_freed_capital
+                    filled = process_queue_on_freed_capital(user_id)
+                    if filled:
+                        log(f"  {user_id}: QUEUE FILL → {filled['ticker']} ${filled['cost_per_contract']:.0f}")
+                except:
+                    pass
         except Exception as e:
             log(f"Error checking {user_id}: {e}", "ERROR")
 
