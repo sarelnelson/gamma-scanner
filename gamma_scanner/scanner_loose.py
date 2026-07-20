@@ -1042,6 +1042,11 @@ def run_scan():
         if is_user_paused(user_id):
             log(f"  {user_id}: PAUSED — skipping entries")
             continue
+        # Skip users without Alpaca keys (not set up yet)
+        from user_manager import get_user_alpaca_keys
+        key, secret = get_user_alpaca_keys(user_id)
+        if not key:
+            continue
         _enter_picks_for_user(picks, user_id)
 
     # Note: profit_monitor.py handles exit checks continuously during market hours.
