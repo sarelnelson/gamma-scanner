@@ -394,31 +394,50 @@ def score_and_select_options(candidates):
             options["est_delta"] = options.apply(
                 lambda r: max(0, min(1, 0.5 - abs(r["strike"] - c["price"]) / c["price"])), axis=1
             )
-            # Option selection: pick the closest-to-ATM option with volume
-            # No price cap. Volume/OI is all that matters for execution.
+            # Option selection:
+            # - Max $500 per contract
+            # - Try ATM first (closest to stock price)
+            # - If ATM > $500: fall back to OTM, but only if score >= 75
+            MAX_CONTRACT_COST = 500
+            OTM_MIN_SCORE = 75
             min_oi = 50 if USE_ALPACA_DATA else 500
             
-            # Filter: must have some activity (OI > 50) and a real price
+            # Filter: must have some activity and a real price
             tradeable = options[
                 (options["openInterest"] > min_oi) &
                 (options["lastPrice"] > 0)
             ]
-            
-            # If no OI data (Alpaca approximation), just require a price
             if tradeable.empty:
                 tradeable = options[options["lastPrice"] > 0]
-            
             if tradeable.empty:
-                # Last resort: any option with bid > 0
                 tradeable = options[options["bid"] > 0]
-            
             if tradeable.empty:
                 continue
             
-            # Pick closest to ATM (highest gamma, best leverage)
             tradeable = tradeable.copy()
             tradeable["atm_dist"] = abs(tradeable["strike"] - c["price"])
-            best = tradeable.nsmallest(1, "atm_dist").iloc[0]
+            tradeable["cost"] = tradeable.apply(
+                lambda r: (r["ask"] if r["ask"] > 0 else r["lastPrice"] * 1.05) * 100, axis=1
+            )
+            
+            # Try ATM (closest to price) that's under $500
+            affordable_atm = tradeable[tradeable["cost"] <= MAX_CONTRACT_COST]
+            
+            if not affordable_atm.empty:
+                # ATM under $500 — take it
+                best = affordable_atm.nsmallest(1, "atm_dist").iloc[0]
+            else:
+                # ATM too expensive — try OTM, but only if high conviction
+                if c.get("score", 0) < OTM_MIN_SCORE and score < OTM_MIN_SCORE:
+                    continue  # not enough conviction for OTM
+                
+                # Find cheapest option under $500 (will be further OTM)
+                otm_affordable = tradeable[tradeable["cost"] <= MAX_CONTRACT_COST]
+                if otm_affordable.empty:
+                    continue  # nothing under $500 at any strike
+                
+                # Pick closest to ATM among affordable options
+                best = otm_affordable.nsmallest(1, "atm_dist").iloc[0]
 
             bid = float(best["bid"]) if best["bid"] > 0 else float(best["lastPrice"]) * 0.95
             ask = float(best["ask"]) if best["ask"] > 0 else float(best["lastPrice"]) * 1.05
