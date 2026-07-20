@@ -1066,19 +1066,25 @@ def _enter_picks_for_user(picks, user_id):
         return
     
     entries_today = len(today_entries)
+    today_tickers = set(t["ticker"] for t in today_entries)
+    
     for pick in picks:
         if entries_today >= MAX_DAILY_ENTRIES:
             break
         
         ticker = pick["ticker"]
+        
+        # Don't enter same ticker twice in one day
+        if ticker in today_tickers:
+            continue
+        
         opt = pick["option"]
         fill_price = opt["ask"] + ENTRY_SLIPPAGE
         cost_per_contract = round(fill_price * 100, 2)
         
-        
         trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
         trades.append(trade)
-
+        today_tickers.add(ticker)
         entries_today += 1
         log(f"  {user_id}: ENTERED {ticker} {pick['direction']} ${opt['strike']} (score:{pick['score']}) cost:${cost_per_contract:.0f}")
     

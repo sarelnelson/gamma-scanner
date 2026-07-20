@@ -21,14 +21,9 @@ def load_users_config():
 
 
 def get_active_users():
-    """Get list of user IDs that have Alpaca keys configured."""
+    """Get list of all configured user IDs."""
     config = load_users_config()
-    users = []
-    for uid, u in config.get("users", {}).items():
-        # User is active if they have alpaca keys OR are the default user
-        if u.get("alpaca_key") or uid == "sarel":
-            users.append(uid)
-    return users
+    return list(config.get("users", {}).keys())
 
 
 def get_user_dir(user_id):
