@@ -499,56 +499,45 @@ function renderSummary(mode) {
 }
 
 function renderPicks(mode) {
-  const picks = picksData[mode] || [];
-  document.getElementById('picks-count').textContent = picks.length;
+  // Show today's entered trades, not the picks file (which only shows last scan)
+  const stats = perfData[mode];
+  const trades = stats?.trades || [];
+  const today = new Date().toISOString().slice(0, 10);
+  const todayEntries = trades.filter(t => t.entry_date === today && t.status === 'open');
+  
+  document.getElementById('picks-count').textContent = todayEntries.length;
   const grid = document.getElementById('picks-grid');
 
-  if (picks.length === 0) {
-    // Show scan status instead of generic message
+  if (todayEntries.length === 0) {
+    // Show scan status
     fetch('/api/last-scan').then(r => r.json()).then(scan => {
-      let msg = 'No picks found.';
+      let msg = 'No entries today.';
       if (scan.last_scan_time) {
         const pst = new Date(scan.last_scan_time).toLocaleString('en-US', {timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true});
-        msg = `No picks passed threshold. Last scan: ${pst} PST — ${scan.candidates_found} candidates screened, 0 qualified.`;
-      } else {
-        msg = 'Scanner has not run yet today.';
+        msg = `No entries today. Last scan: ${pst} PST — ${scan.candidates_found || '?'} candidates screened.`;
       }
       grid.innerHTML = `<div style="color:#8b949e;padding:20px;font-size:13px;">${msg}</div>`;
     });
     return;
   }
 
-  grid.innerHTML = picks.map(p => {
-    const scoreClass = p.score >= 80 ? 'high' : p.score >= 60 ? 'mid' : 'low';
-    const dirClass = p.direction.toLowerCase();
-    const opt = p.option || {};
+  grid.innerHTML = todayEntries.map(t => {
+    const opt = t;
+    const pnl = t.current_pnl || 0;
+    const pnlColor = pnl > 0 ? '#3fb950' : pnl < 0 ? '#f85149' : '#8b949e';
     return `
       <div class="pick-card">
         <div class="header">
-          <span class="ticker">${p.ticker}</span>
-          <span class="direction ${dirClass}">${p.direction}</span>
-          <span style="margin-left:auto;font-size:20px;font-weight:700;color:${scoreClass === 'high' ? '#3fb950' : scoreClass === 'mid' ? '#d29922' : '#f85149'}">${p.score}</span>
+          <span class="ticker" style="font-size:18px;font-weight:700;">${t.ticker}</span>
+          <span class="direction ${t.direction?.toLowerCase()}" style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;background:${t.direction==='CALL'?'#0d2818':'#2d1215'};color:${t.direction==='CALL'?'#3fb950':'#f85149'}">${t.direction}</span>
+          <span style="margin-left:auto;font-size:18px;font-weight:700;color:${pnl>=0?'#3fb950':'#f85149'}">$${pnl.toFixed(0)}</span>
         </div>
-        <div class="score-bar"><div class="fill ${scoreClass}" style="width:${p.score}%"></div></div>
-        <div class="details">
-          <div class="row"><span class="lbl">Setup</span><span class="val">${formatSetup(p.setup)}</span></div>
-          <div class="row"><span class="lbl">Price</span><span class="val">$${p.price?.toFixed(2) || '—'}</span></div>
-          <div class="row"><span class="lbl">RSI</span><span class="val">${p.rsi?.toFixed(1) || '—'}</span></div>
-          <div class="row"><span class="lbl">ATR%</span><span class="val">${p.atr_pct?.toFixed(1) || '—'}%</span></div>
-          <div class="row"><span class="lbl">Vol Ratio</span><span class="val">${p.vol_ratio?.toFixed(1) || '—'}x</span></div>
-          <div class="row"><span class="lbl">10d Move</span><span class="val" style="color:${(p.move_10d||0) >= 0 ? '#3fb950' : '#f85149'}">${(p.move_10d||0) >= 0 ? '+' : ''}${p.move_10d?.toFixed(1) || '0'}%</span></div>
+        <div style="font-size:12px;color:#8b949e;margin-top:8px;">
+          <div>Strike: $${t.option_strike} | Exp: ${t.option_exp?.slice(5)}</div>
+          <div>Entry: $${t.option_cost?.toFixed(2)} | Bid: $${t.current_option_bid || '?'}</div>
+          <div>Score: ${t.score} | Cost: $${t.cost_per_contract?.toFixed(0)}/contract</div>
         </div>
-        ${opt.strike ? `
-        <div class="option-info">
-          <div class="row"><span class="lbl">Strike</span><span class="val">$${opt.strike}</span></div>
-          <div class="row"><span class="lbl">Exp</span><span class="val">${opt.expiration}</span></div>
-          <div class="row"><span class="lbl">Bid/Ask</span><span class="val">$${opt.bid?.toFixed(2)} / $${opt.ask?.toFixed(2)}</span></div>
-          <div class="row"><span class="lbl">Spread</span><span class="val">${opt.spread_pct?.toFixed(1)}%</span></div>
-          <div class="row"><span class="lbl">OI</span><span class="val">${opt.open_interest?.toLocaleString()}</span></div>
-          <div class="row"><span class="lbl">Cost</span><span class="val" style="color:#58a6ff;font-weight:700;">$${opt.cost_per_contract?.toFixed(0)}</span></div>
-        </div>` : ''}
-      </div>
-    `;
+      </div>`;
   }).join('');
 }
 
