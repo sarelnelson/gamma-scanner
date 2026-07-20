@@ -595,7 +595,7 @@ function renderTrades(mode) {
         <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}<br><span style="font-size:11px;opacity:0.8;">(${pnlPct}%)</span></td>
         <td>${dailyStr}</td>
         <td style="color:${floorColor};font-weight:${floor ? '600' : '400'};">${floorStr}</td>
-        <td><button onclick="closeTrade('${t.ticker}')" style="padding:3px 8px;border-radius:4px;border:1px solid #30363d;background:#21262d;color:#f85149;font-size:11px;cursor:pointer;">✕</button></td>
+        <td><button onclick="addContract('${t.ticker}')" style="padding:3px 8px;border-radius:4px;border:1px solid ${pnl > 0 ? '#3fb950' : '#f85149'};background:${pnl > 0 ? '#0d2818' : '#2d1215'};color:${pnl > 0 ? '#3fb950' : '#f85149'};font-size:11px;cursor:pointer;margin-right:4px;">+</button><button onclick="closeTrade('${t.ticker}')" style="padding:3px 8px;border-radius:4px;border:1px solid #30363d;background:#21262d;color:#f85149;font-size:11px;cursor:pointer;">✕</button></td>
       </tr>
     `;
   }).join('');
@@ -801,6 +801,22 @@ async function closeTrade(ticker) {
     fetchData();
   } catch (e) {
     alert('Error closing trade: ' + e.message);
+  }
+}
+
+async function addContract(ticker) {
+  if (!confirm(`Buy 1 more contract of ${ticker} at current price?`)) return;
+  try {
+    const resp = await fetch(`/api/add-contract/${ticker}?user=${currentUser}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.success) {
+      alert(data.message);
+      fetchData();
+    } else {
+      alert(data.error);
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
   }
 }
 

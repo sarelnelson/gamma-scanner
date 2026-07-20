@@ -544,6 +544,63 @@ def close_all_positions(user: str = Query(default="sarel")):
     }
 
 
+@app.post("/api/add-contract/{ticker}")
+def add_contract(ticker: str, user: str = Query(default="sarel")):
+    """Buy another contract of an existing open position."""
+    ticker = ticker.upper()
+    from user_manager import load_user_trades, save_user_trades, get_user_balance, get_user_deployed
+    trades = load_user_trades(user)
+    
+    # Find the open position for this ticker
+    open_position = None
+    for t in trades:
+        if t.get("status") == "open" and t.get("ticker") == ticker:
+            open_position = t
+            break
+    
+    if not open_position:
+        return {"error": f"No open position found for {ticker}", "success": False}
+    
+    # Check if user can afford another contract
+    balance = get_user_balance(user)
+    deployed = get_user_deployed(user)
+    available = balance - deployed
+    cost = open_position.get("cost_per_contract", 0)
+    
+    if cost > available:
+        return {"error": f"Insufficient funds. Need ${cost:.0f}, have ${available:.0f} available.", "success": False}
+    
+    # Create a new trade entry duplicating the position
+    from datetime import datetime
+    now = datetime.now()
+    new_trade = {
+        "ticker": ticker,
+        "direction": open_position["direction"],
+        "setup": open_position.get("setup", "manual_add"),
+        "score": open_position.get("score", 0),
+        "entry_price": open_position.get("current_price", open_position["entry_price"]),
+        "entry_date": now.strftime("%Y-%m-%d"),
+        "entry_time": now.isoformat(),
+        "option_strike": open_position["option_strike"],
+        "option_exp": open_position["option_exp"],
+        "option_cost": open_position.get("current_option_bid", open_position["option_cost"]),
+        "cost_per_contract": round(open_position.get("current_option_bid", open_position["option_cost"]) * 100, 2),
+        "status": "open",
+        "pnl": 0,
+        "current_pnl": 0.0,
+        "added_to_position": True,
+    }
+    trades.append(new_trade)
+    save_user_trades(user, trades)
+    
+    return {
+        "success": True,
+        "ticker": ticker,
+        "cost": new_trade["cost_per_contract"],
+        "message": f"Added 1 contract of {ticker} at ${new_trade['option_cost']:.2f}",
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8081)

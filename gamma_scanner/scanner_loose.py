@@ -1070,6 +1070,15 @@ def _enter_picks_for_user(picks, user_id):
     if len(open_trades) >= MAX_OPEN_POSITIONS:
         return
     
+    # Reality check: can't deploy more than account balance
+    balance = get_user_balance(user_id)
+    deployed = get_user_deployed(user_id)
+    available = balance - deployed  # what the broker would actually let you spend
+    
+    if available <= 0:
+        log(f"  {user_id}: fully deployed (${deployed:.0f}/${balance:.0f}) — no new entries")
+        return
+    
     entries_today = len(today_entries)
     today_tickers = set(t["ticker"] for t in today_entries)
     
@@ -1087,9 +1096,14 @@ def _enter_picks_for_user(picks, user_id):
         fill_price = opt["ask"] + ENTRY_SLIPPAGE
         cost_per_contract = round(fill_price * 100, 2)
         
+        # Can't spend more than available
+        if cost_per_contract > available:
+            continue
+        
         trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
         trades.append(trade)
         today_tickers.add(ticker)
+        available -= cost_per_contract
         entries_today += 1
         log(f"  {user_id}: ENTERED {ticker} {pick['direction']} ${opt['strike']} (score:{pick['score']}) cost:${cost_per_contract:.0f}")
     
