@@ -651,8 +651,16 @@ def run_monitor():
                             # Update last_scan.json for dashboard
                             try:
                                 import json as _json
-                                scan_info = {"last_scan_time": datetime.utcnow().isoformat() + "Z", "picks_found": len(picks) if picks else 0, "candidates_found": 0}
-                                scan_path = os.path.join(os.path.dirname(TRADES_FILE), "last_scan.json")
+                                scanner_dir = os.path.dirname(TRADES_FILE)
+                                # Get actual candidates count from file
+                                try:
+                                    with open(os.path.join(scanner_dir, "candidates.json")) as _cf:
+                                        cands = _json.load(_cf)
+                                    candidates_found = len(cands)
+                                except:
+                                    candidates_found = 0
+                                scan_info = {"last_scan_time": datetime.utcnow().isoformat() + "Z", "picks_found": len(picks) if picks else 0, "candidates_found": candidates_found}
+                                scan_path = os.path.join(scanner_dir, "last_scan.json")
                                 with open(scan_path, "w") as _f:
                                     _json.dump(scan_info, _f)
                             except: pass
