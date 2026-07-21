@@ -524,6 +524,14 @@ def run_monitor():
     log(f"  Consecutive loss watchdog: warn at 5, kill at 10")
     log("=" * 60)
     
+    # Publish briefing immediately on startup
+    try:
+        from briefing import publish_briefing
+        publish_briefing()
+        log("  Briefing published to gist ✓")
+    except Exception as e:
+        log(f"  Briefing not configured: {e}")
+    
     consecutive_errors = 0
     scans_completed_today = set()
     
@@ -553,6 +561,10 @@ def run_monitor():
                 if now.hour == 20 and now.minute < 5:
                     log("Market just closed — final position check")
                     check_all_users()
+                    try:
+                        from briefing import publish_briefing
+                        publish_briefing()
+                    except: pass
                 time.sleep(300)
                 continue
             
