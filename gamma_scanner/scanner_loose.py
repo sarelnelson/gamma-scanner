@@ -1139,7 +1139,34 @@ def _enter_picks_for_user(picks, user_id):
             log(f"  {user_id}: QUEUED {ticker} (need ${cost_per_contract:.0f}, have ${available:.0f})")
             continue
         
-        trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
+        # Live execution: actually place the order on Alpaca
+        import os
+        if os.environ.get("LIVE_EXECUTION") == "true":
+            from broker_alpaca import buy_to_open
+            from user_manager import get_user_alpaca_keys
+            key, secret = get_user_alpaca_keys(user_id)
+            # Override keys if user has their own
+            if key:
+                import broker_alpaca as _ba
+                _ba.API_KEY = key
+                _ba.API_SECRET = secret
+                _ba.HEADERS = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+            
+            result = buy_to_open(ticker, opt["expiration"], pick["direction"], opt["strike"])
+            if not result["success"]:
+                log(f"  {user_id}: ORDER FAILED for {ticker} — {result['status']}")
+                continue
+            fill_price = result["fill_price"]
+            cost_per_contract = round(fill_price * 100, 2)
+            log(f"  {user_id}: ORDER FILLED {ticker} @ ${fill_price:.2f} (order:{result['order_id']})")
+            trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
+            trade["order_id"] = result["order_id"]
+            trade["execution"] = "live"
+        else:
+            # Paper tracking only
+            trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
+            trade["execution"] = "paper"
+        
         trades.append(trade)
         today_tickers.add(ticker)
         available -= cost_per_contract
