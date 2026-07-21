@@ -560,6 +560,13 @@ def run_monitor():
             check_all_users()
             consecutive_errors = 0
             
+            # Publish briefing for AI assistant (every cycle)
+            try:
+                from briefing import publish_briefing
+                publish_briefing()
+            except Exception as _e:
+                pass  # Non-critical — don't let briefing errors break the monitor
+            
             # === CRASH DETECTION (check every 10 cycles = ~20 min) ===
             if not hasattr(run_monitor, '_cycle_count'):
                 run_monitor._cycle_count = 0
