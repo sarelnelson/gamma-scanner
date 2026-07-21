@@ -7,7 +7,14 @@ import os
 
 # Base directory = wherever this file lives
 SCANNER_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("GAMMA_DATA_DIR", SCANNER_DIR)
+
+# Data directory: use env var, or Docker volume if it exists, or fall back to scanner dir
+if os.environ.get("GAMMA_DATA_DIR"):
+    DATA_DIR = os.environ["GAMMA_DATA_DIR"]
+elif os.path.isdir("/app/data"):
+    DATA_DIR = "/app/data"
+else:
+    DATA_DIR = SCANNER_DIR
 
 # File paths
 TRADES_FILE = os.path.join(DATA_DIR, "trades_loose.json")

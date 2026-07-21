@@ -46,8 +46,13 @@ try:
         print(f'  User {uid}: data at {user_dir}')
         # Symlink user data dir into scanner dir for relative path access
         link = f'/app/gamma_scanner/user_{uid}'
-        if not os.path.exists(link):
-            os.symlink(user_dir, link)
+        # Remove existing directory/link if it exists
+        if os.path.isdir(link) and not os.path.islink(link):
+            import shutil
+            shutil.rmtree(link)
+        elif os.path.islink(link):
+            os.remove(link)
+        os.symlink(user_dir, link)
 except Exception as e:
     print(f'  Warning: {e}', file=sys.stderr)
 "
