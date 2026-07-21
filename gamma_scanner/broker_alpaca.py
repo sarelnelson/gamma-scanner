@@ -188,7 +188,18 @@ def submit_order(symbol: str, side: str, qty: int, limit_price: float,
     Returns order dict with id, status, etc. or None on failure.
     
     NEVER use market orders on options. The spread will eat you alive.
+    
+    NOTE: position_intent is REQUIRED by Alpaca for options.
+    Without it, sells get rejected as "uncovered option contracts" because
+    Alpaca interprets them as opening a new short position.
     """
+    # Alpaca requires position_intent for options to distinguish
+    # opening vs closing trades. Without this, sell orders get 403'd.
+    if side == "buy":
+        position_intent = "buy_to_open"
+    else:
+        position_intent = "sell_to_close"
+    
     order_data = {
         "symbol": symbol,
         "qty": str(qty),
@@ -196,6 +207,7 @@ def submit_order(symbol: str, side: str, qty: int, limit_price: float,
         "type": "limit",
         "time_in_force": time_in_force,
         "limit_price": str(round(limit_price, 2)),
+        "position_intent": position_intent,
     }
     
     log(f"Submitting {side.upper()} {qty}x {symbol} @ ${limit_price:.2f} (limit)")
@@ -277,17 +289,48 @@ def replace_order(order_id: str, new_limit_price: float, qty: int = None) -> Opt
 
 # === HIGH-LEVEL EXECUTION FLOWS ===
 
+def has_pending_order_for(ticker: str) -> bool:
+    """
+    Check if there's already an open/pending order for this ticker's options.
+    Prevents duplicate simultaneous orders (e.g. double-tap on dashboard).
+    """
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/v2/orders",
+            headers=HEADERS,
+            params={"status": "open", "limit": 50},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            # If we can't check, err on the side of caution — block the order
+            log(f"Can't check open orders ({resp.status_code}), blocking duplicate guard", "WARN")
+            return True
+        
+        open_orders = resp.json()
+        for order in open_orders:
+            symbol = order.get("symbol", "")
+            # OCC symbols start with the ticker (e.g., DKNG260807C00024000)
+            if symbol.startswith(ticker) and order.get("side") == "buy":
+                log(f"  ⚠️ DUPLICATE BLOCKED: Already have open buy order for {ticker} ({symbol}, id={order['id'][:8]})")
+                return True
+        return False
+    except Exception as e:
+        log(f"Error checking pending orders: {e}", "WARN")
+        return True  # Block if we can't verify
+
+
 def buy_to_open(ticker: str, expiration: str, direction: str, strike: float,
                 max_price: float = None) -> Dict:
     """
     Full buy-to-open flow:
-    1. Resolve contract symbol
-    2. Get current quote
-    3. Submit limit order at ask (or max_price if lower)
-    4. Wait up to ORDER_TIMEOUT for fill
-    5. If not filled: replace at more aggressive price (up to REPLACE_ATTEMPTS times)
-    6. If still not filled: cancel and report failure
-    7. Handle partial fills: accept what we got
+    1. Check for existing in-flight orders (prevent duplicates)
+    2. Resolve contract symbol
+    3. Get current quote
+    4. Submit limit order at mid (or max_price if lower)
+    5. Wait up to ORDER_TIMEOUT for fill
+    6. If not filled: replace at more aggressive price (up to REPLACE_ATTEMPTS times)
+    7. If still not filled: cancel and report failure
+    8. Handle partial fills: accept what we got
     
     Returns: {
         "success": bool,
@@ -308,6 +351,11 @@ def buy_to_open(ticker: str, expiration: str, direction: str, strike: float,
         "contract_symbol": None,
         "quote_at_entry": None,
     }
+    
+    # Step 0: Check for duplicate in-flight orders
+    if has_pending_order_for(ticker):
+        result["status"] = "duplicate_blocked"
+        return result
     
     # Step 1: Find the contract
     contract = find_contract(ticker, expiration, direction, strike)
