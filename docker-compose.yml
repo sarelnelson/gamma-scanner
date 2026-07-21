@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   gamma-scanner:
     build:
@@ -11,13 +9,11 @@ services:
     environment:
       - ALPACA_API_KEY=${ALPACA_API_KEY:-PKOMKRLONHFRTJIPY3OTSRQYDP}
       - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4}
-      - NTFY_TOPIC=${NTFY_TOPIC:-}
+      - NTFY_TOPIC=${NTFY_TOPIC:-Leras2468}
       - PORT=8081
       - GAMMA_DATA_DIR=/app/data
-      # Set to "true" for real money execution:
-      # - LIVE_EXECUTION=true
+      - LIVE_EXECUTION=true
     volumes:
-      # Persist trades data across container restarts
       - gamma_data:/app/data
     restart: unless-stopped
     healthcheck:
