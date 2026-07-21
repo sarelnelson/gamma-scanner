@@ -1,6 +1,5 @@
 #!/bin/bash
 # Docker startup script — runs the profit monitor and API server together.
-# The monitor runs in the background, the API server runs in foreground (Docker needs one foreground process).
 
 set -e
 
@@ -10,19 +9,49 @@ echo "  Alpaca Key: ${ALPACA_API_KEY:0:8}..."
 echo "  Mode: $([ -z '$LIVE_EXECUTION' ] && echo 'PAPER' || echo 'LIVE')"
 echo ""
 
-# Symlink data directory so trades persist across restarts (mount /app/data as a volume)
+# Set up persistent data directory structure
 if [ -d "/app/data" ]; then
-    # Use mounted volume for persistent data
-    [ -f "/app/data/trades_loose.json" ] || echo "[]" > /app/data/trades_loose.json
-    [ -f "/app/data/trades_strict.json" ] || echo "[]" > /app/data/trades_strict.json
+    # Shared scanner files (candidates, picks, scan log)
+    [ -f "/app/data/candidates.json" ] || echo "[]" > /app/data/candidates.json
     [ -f "/app/data/picks_loose.json" ] || echo "[]" > /app/data/picks_loose.json
-    [ -f "/app/data/picks_strict.json" ] || echo "[]" > /app/data/picks_strict.json
+    [ -f "/app/data/last_scan.json" ] || echo '{"last_scan_time":null,"picks_found":0,"candidates_found":0}' > /app/data/last_scan.json
     
-    # Symlink scanner data files to the persistent volume
-    ln -sf /app/data/trades_loose.json /app/gamma_scanner/trades_loose.json
-    ln -sf /app/data/trades_strict.json /app/gamma_scanner/trades_strict.json
+    # Symlink shared files to scanner dir
+    ln -sf /app/data/candidates.json /app/gamma_scanner/candidates.json
     ln -sf /app/data/picks_loose.json /app/gamma_scanner/picks_loose.json
-    ln -sf /app/data/picks_strict.json /app/gamma_scanner/picks_strict.json
+    ln -sf /app/data/last_scan.json /app/gamma_scanner/last_scan.json
+    
+    # Per-user directories — preserve existing data
+    # Load users from config to create directories for each
+    python3 -c "
+import json, os, sys
+try:
+    with open('/app/gamma_scanner/users.json') as f:
+        config = json.load(f)
+    for uid in config.get('users', {}).keys():
+        user_dir = f'/app/data/user_{uid}'
+        os.makedirs(user_dir, exist_ok=True)
+        # Init files only if they don't exist (don't overwrite existing data)
+        for fname, default in [('trades.json', '[]'), ('picks.json', '[]'), ('queue.json', '[]')]:
+            path = os.path.join(user_dir, fname)
+            if not os.path.exists(path):
+                with open(path, 'w') as f:
+                    f.write(default)
+        # Account file
+        acc_path = os.path.join(user_dir, 'account.json')
+        if not os.path.exists(acc_path):
+            bal = config.get('users', {}).get(uid, {}).get('starting_balance', 0)
+            with open(acc_path, 'w') as f:
+                json.dump({'starting_balance': bal, 'transactions': []}, f)
+        print(f'  User {uid}: data at {user_dir}')
+        # Symlink user data dir into scanner dir for relative path access
+        link = f'/app/gamma_scanner/user_{uid}'
+        if not os.path.exists(link):
+            os.symlink(user_dir, link)
+except Exception as e:
+    print(f'  Warning: {e}', file=sys.stderr)
+"
+    echo "  Data directories ready"
 fi
 
 # Start profit monitor in background
@@ -31,7 +60,6 @@ cd /app && python -u gamma_scanner/profit_monitor.py > /app/data/monitor.log 2>&
 MONITOR_PID=$!
 echo "  Monitor PID: $MONITOR_PID"
 
-# Health check: verify monitor started
 sleep 2
 if kill -0 $MONITOR_PID 2>/dev/null; then
     echo "  Monitor: ✅ running"
@@ -41,7 +69,6 @@ else
     exit 1
 fi
 
-# Trap signals to cleanly stop both processes
 cleanup() {
     echo "Shutting down..."
     kill $MONITOR_PID 2>/dev/null
@@ -50,6 +77,5 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# Start API server in foreground (keeps container alive)
 echo "Starting API server on port ${PORT:-8081}..."
 cd /app/gamma_scanner && exec python -m uvicorn server:app --host 0.0.0.0 --port ${PORT:-8081}

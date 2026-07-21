@@ -692,3 +692,101 @@ def buy_from_queue(ticker: str, user: str = Query(default="sarel")):
     save_queue(user, queue)
     
     return {"success": True, "ticker": ticker, "cost": cost, "message": f"Bought {ticker} at ${current_ask:.2f}"}
+
+
+@app.post("/api/sync-alpaca")
+def sync_from_alpaca(user: str = Query(default="sarel")):
+    """
+    Sync open positions from Alpaca into local trades.
+    Use this to recover after a data wipe.
+    Only adds positions that aren't already tracked.
+    """
+    from user_manager import load_user_trades, save_user_trades, get_user_alpaca_keys, load_users_config
+    from broker_alpaca import PAPER_MODE
+    import requests as req
+    
+    key, secret = get_user_alpaca_keys(user)
+    if not key:
+        key = ALPACA_API_KEY
+        secret = ALPACA_SECRET_KEY
+    
+    base = "https://paper-api.alpaca.markets" if PAPER_MODE else "https://api.alpaca.markets"
+    hdrs = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+    
+    try:
+        resp = req.get(f"{base}/v2/positions", headers=hdrs, timeout=10)
+        if resp.status_code != 200:
+            return {"error": f"Alpaca returned {resp.status_code}", "success": False}
+        
+        positions = resp.json()
+        option_positions = [p for p in positions if p.get("asset_class") == "us_option"]
+        
+        if not option_positions:
+            return {"success": True, "synced": 0, "message": "No open option positions on Alpaca"}
+        
+        trades = load_user_trades(user)
+        existing_symbols = set()
+        for t in trades:
+            if t.get("status") == "open":
+                # Build OCC symbol for comparison
+                from broker_alpaca import build_occ_symbol
+                sym = build_occ_symbol(t["ticker"], t["option_exp"], t["direction"], t["option_strike"])
+                existing_symbols.add(sym)
+        
+        synced = 0
+        for pos in option_positions:
+            symbol = pos.get("symbol", "")
+            if symbol in existing_symbols:
+                continue  # already tracking this
+            
+            # Parse OCC symbol: AAPL260718C00150000
+            try:
+                import re
+                m = re.match(r'^([A-Z]+)(\d{6})([CP])(\d{8})$', symbol)
+                if not m:
+                    continue
+                ticker = m.group(1)
+                exp_raw = m.group(2)  # YYMMDD
+                exp_date = f"20{exp_raw[:2]}-{exp_raw[2:4]}-{exp_raw[4:6]}"
+                direction = "CALL" if m.group(3) == "C" else "PUT"
+                strike = int(m.group(4)) / 1000
+                
+                avg_entry = float(pos.get("avg_entry_price", 0))
+                qty = int(pos.get("qty", 1))
+                market_val = float(pos.get("market_value", 0))
+                
+                trade = {
+                    "ticker": ticker,
+                    "direction": direction,
+                    "setup": "alpaca_sync",
+                    "score": 0,
+                    "entry_price": 0,
+                    "entry_date": datetime.utcnow().strftime("%Y-%m-%d"),
+                    "entry_time": datetime.utcnow().isoformat(),
+                    "option_strike": strike,
+                    "option_exp": exp_date,
+                    "option_cost": avg_entry,
+                    "cost_per_contract": round(avg_entry * 100 * qty, 2),
+                    "status": "open",
+                    "pnl": 0,
+                    "current_pnl": 0.0,
+                    "synced_from_alpaca": True,
+                    "alpaca_symbol": symbol,
+                    "qty": qty,
+                }
+                trades.append(trade)
+                synced += 1
+            except:
+                continue
+        
+        if synced > 0:
+            save_user_trades(user, trades)
+        
+        return {
+            "success": True,
+            "synced": synced,
+            "total_alpaca_positions": len(option_positions),
+            "message": f"Synced {synced} new positions from Alpaca",
+        }
+    except Exception as e:
+        return {"error": str(e), "success": False}

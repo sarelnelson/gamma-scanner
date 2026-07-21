@@ -175,6 +175,7 @@ a:hover { text-decoration: underline; }
     <button onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;">💳 Fund</button>
     <button id="pause-btn" onclick="togglePause()" style="padding:6px 14px;border-radius:6px;border:1px solid #d29922;background:transparent;color:#d29922;font-size:12px;cursor:pointer;font-weight:600;">⏸ Pause</button>
     <button onclick="manualScan()" style="padding:6px 14px;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;font-size:12px;cursor:pointer;font-weight:600;">🔍 Scan</button>
+    <button onclick="syncAlpaca()" style="padding:6px 14px;border-radius:6px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;">⟳ Sync</button>
     <button onclick="switchUser()" style="padding:6px 14px;border-radius:6px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:12px;cursor:pointer;">↺</button>
     <span style="color:#8b949e;font-size:12px;" id="last-update"></span>
     <span><span class="status-dot live"></span></span>
@@ -327,6 +328,22 @@ document.getElementById('user-title').textContent = userName + "'s Scanner";
 function switchUser() {
   localStorage.removeItem('gamma_user');
   window.location.href = '/';
+}
+
+async function syncAlpaca() {
+  if (!confirm('Sync positions from Alpaca? This imports any open contracts not already tracked.')) return;
+  try {
+    const resp = await fetch(`/api/sync-alpaca?user=${currentUser}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.success) {
+      alert(data.message);
+      fetchData();
+    } else {
+      alert('Sync failed: ' + (data.error || 'unknown error'));
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 async function manualScan() {

@@ -13,6 +13,7 @@ services:
       - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4}
       - NTFY_TOPIC=${NTFY_TOPIC:-}
       - PORT=8081
+      - GAMMA_DATA_DIR=/app/data
       # Set to "true" for real money execution:
       # - LIVE_EXECUTION=true
     volumes:
