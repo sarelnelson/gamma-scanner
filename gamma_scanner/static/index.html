@@ -507,23 +507,20 @@ function renderSummary(mode) {
     .filter(t => (t.status === 'closed' || t.status === 'expired') && t.exit_date === today)
     .reduce((sum, t) => sum + (t.pnl || 0), 0);
   
-  // Today's unrealized change: for open trades, approximate daily change
-  // Use: current_pnl (total unrealized) - what it was yesterday
-  // Since we don't store yesterday's value, use entry_date to identify today's entries
-  // and for older positions, use the stored previous bid vs current
+  // Today's unrealized change: only for positions where we have today's baseline
   let todayUnrealized = 0;
   const openTrades = trades.filter(t => t.status === 'open');
+  const todayStr = new Date().toISOString().slice(0, 10);
   for (const t of openTrades) {
-    if (t.entry_date === today) {
-      // Entered today — daily P&L is just current unrealized
+    const bid = t.current_option_bid || 0;
+    if (t.entry_date === todayStr) {
+      // Entered today — daily P&L is just current unrealized from entry
       todayUnrealized += (t.current_pnl || 0);
-    } else {
-      // Older position — estimate daily move from stock change
-      // If we have current bid and entry, today's move is roughly the stock's daily % * delta * 100
-      const bid = t.current_option_bid || 0;
-      const prevBid = t.prev_option_bid || t.option_cost || bid;
-      todayUnrealized += (bid - prevBid) * 100;
+    } else if (t.prev_bid_date === todayStr && t.prev_option_bid) {
+      // Have today's opening baseline — show real daily move
+      todayUnrealized += (bid - t.prev_option_bid) * 100;
     }
+    // If prev_bid_date is not today, skip — we don't have a reliable today baseline
   }
   
   const dailyTotal = todayRealized + todayUnrealized;
@@ -609,7 +606,9 @@ function renderTrades(mode) {
     const pnl = t.current_pnl || 0;
     const bid = t.current_option_bid;
     const entry = t.option_cost || 0;
-    const pnlPct = entry > 0 && bid ? ((bid - entry) / entry * 100).toFixed(0) : '—';
+    // Use real bid for % if available, otherwise derive from current_pnl
+    const pnlPct = bid && entry > 0 ? ((bid - entry) / entry * 100).toFixed(0) 
+                   : (entry > 0 && t.cost_per_contract > 0 ? (pnl / t.cost_per_contract * 100).toFixed(0) : '—');
     const pnlClass = pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : '';
     const dirClass = t.direction === 'CALL' ? 'color:#3fb950' : 'color:#f85149';
     const floor = t.trailing_floor_pct;
