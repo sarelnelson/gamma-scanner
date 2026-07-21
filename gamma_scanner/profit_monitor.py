@@ -16,7 +16,7 @@ PRODUCTION DESIGN PRINCIPLES:
 """
 import json, os, time, sys, tempfile, atexit, signal
 from datetime import datetime, timedelta
-import yfinance as yf
+
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -158,58 +158,30 @@ def save_trades(trades):
 
 def get_option_bid(ticker, strike, expiration, direction):
     """
-    Get the REAL current bid price for a specific option contract.
-    This is what you'd actually receive if you sold the option right now.
-    
-    Returns: (bid_price, mid_price, ask_price, last_price) or None on failure
-    
-    In production with a real broker (Alpaca/IBKR/TDA):
-    - Replace this with broker's streaming option quotes
-    - Use Level 2 data if available for better fill estimates
-    - Consider using mark price (broker's mid) for P&L display
-    - Use bid for conservative exit valuation
+    Get the REAL current bid price for a specific option contract via Alpaca API.
+    Returns: {bid, mid, ask, last} or None on failure
     """
     try:
-        t = yf.Ticker(ticker)
-        chain = t.option_chain(expiration)
+        from broker_alpaca import build_occ_symbol, get_option_quote
+        symbol = build_occ_symbol(ticker, expiration, direction, strike)
+        quote = get_option_quote(symbol)
         
-        if direction == "CALL":
-            opts = chain.calls
-        else:
-            opts = chain.puts
-        
-        if opts.empty:
+        if not quote:
             return None
         
-        # Find our specific strike
-        match = opts[abs(opts["strike"] - strike) < 0.01]
-        if match.empty:
-            # Try nearest strike
-            opts["diff"] = abs(opts["strike"] - strike)
-            match = opts.nsmallest(1, "diff")
-            if match.empty:
-                return None
+        bid = quote.get("bid", 0)
+        ask = quote.get("ask", 0)
         
-        row = match.iloc[0]
-        bid = float(row.get("bid", 0))
-        ask = float(row.get("ask", 0))
-        last = float(row.get("lastPrice", 0))
+        if bid <= 0 and ask <= 0:
+            return None
         
-        # Sanity checks — option markets can have stale/zero quotes
-        if bid <= 0 and last <= 0:
-            return None  # no valid price available
-        
-        # If bid is 0 (wide market), use last as conservative estimate
-        if bid <= 0:
-            bid = last * 0.85  # assume 15% haircut from last
-        
-        mid = (bid + ask) / 2 if ask > 0 else bid
+        mid = (bid + ask) / 2 if bid > 0 and ask > 0 else bid or ask
         
         return {
             "bid": round(bid, 2),
             "mid": round(mid, 2),
             "ask": round(ask, 2),
-            "last": round(last, 2),
+            "last": round(mid, 2),  # Alpaca doesn't give last, use mid
         }
     
     except Exception as e:
@@ -218,17 +190,22 @@ def get_option_bid(ticker, strike, expiration, direction):
 
 
 def get_stock_price(ticker):
-    """Get current stock price. Returns float or None."""
+    """Get current stock price via Alpaca. Returns float or None."""
     try:
-        t = yf.Ticker(ticker)
-        # Use 1d period with 1m interval for freshest intraday price
-        df = t.history(period="1d", interval="1m")
-        if df.empty:
-            # Fallback to daily
-            df = t.history(period="1d")
-        if df.empty:
-            return None
-        return round(float(df["Close"].iloc[-1]), 2)
+        import requests
+        from config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+        headers = {"APCA-API-KEY-ID": ALPACA_API_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY}
+        resp = requests.get(
+            f"https://data.alpaca.markets/v2/stocks/{ticker}/snapshot",
+            headers=headers, timeout=5
+        )
+        if resp.status_code == 200:
+            snap = resp.json()
+            trade = snap.get("latestTrade", {})
+            price = trade.get("p", 0)
+            if price:
+                return round(float(price), 2)
+        return None
     except Exception as e:
         log(f"  Failed to get stock price for {ticker}: {e}", "WARN")
         return None
