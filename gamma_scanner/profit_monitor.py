@@ -437,6 +437,24 @@ def check_positions_for_trades(trades, user_id=""):
         
         if should_exit:
             # TRAILING STOP HIT — TAKE PROFIT
+            # Live execution: actually sell on Alpaca
+            import os as _os
+            if _os.environ.get("LIVE_EXECUTION") == "true":
+                try:
+                    from broker_alpaca import sell_to_close, build_occ_symbol
+                    contract_symbol = trade.get("alpaca_symbol") or build_occ_symbol(ticker, expiration, direction, strike)
+                    result = sell_to_close(contract_symbol, qty=1)
+                    if result["success"]:
+                        trade["exit_fill_price"] = result["fill_price"]
+                        trade["exit_order_id"] = result["order_id"]
+                        exit_value = result["fill_price"]
+                        pnl_dollars = round((exit_value - entry_cost) * 100, 2)
+                        log(f"  SELL ORDER FILLED: {contract_symbol} @ ${exit_value:.2f}")
+                    else:
+                        log(f"  SELL FAILED ({result['status']}): closing locally anyway", "WARN")
+                except Exception as e:
+                    log(f"  SELL ERROR: {e}", "ERROR")
+            
             trade["status"] = "closed"
             trade["exit_reason"] = f"TRAILING STOP +{pnl_pct:.0f}% (floor:{current_floor}%, high:{prev_high:.0f}%)"
             trade["exit_date"] = datetime.utcnow().strftime("%Y-%m-%d")

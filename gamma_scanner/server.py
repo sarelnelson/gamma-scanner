@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from broker_alpaca import get_option_quote, build_occ_symbol, get_account, PAPER_MODE, HEADERS as ALPACA_HEADERS, sell_to_close, find_contract
+from broker_alpaca import get_option_quote, build_occ_symbol, get_account, PAPER_MODE, HEADERS as ALPACA_HEADERS, sell_to_close, find_contract, buy_to_open
 
 app = FastAPI(title="Gamma Scanner", version="2.0")
 
@@ -602,6 +602,19 @@ def add_contract(ticker: str, user: str = Query(default="sarel")):
         "current_pnl": 0.0,
         "added_to_position": True,
     }
+    
+    # Live execution: place real order
+    if os.environ.get("LIVE_EXECUTION") == "true":
+        result = buy_to_open(ticker, open_position["option_exp"], open_position["direction"], open_position["option_strike"])
+        if not result["success"]:
+            return {"error": f"Order failed: {result['status']}", "success": False}
+        new_trade["option_cost"] = result["fill_price"]
+        new_trade["cost_per_contract"] = round(result["fill_price"] * 100, 2)
+        new_trade["order_id"] = result["order_id"]
+        new_trade["execution"] = "live"
+    else:
+        new_trade["execution"] = "paper"
+    
     trades.append(new_trade)
     save_user_trades(user, trades)
     
@@ -684,6 +697,19 @@ def buy_from_queue(ticker: str, user: str = Query(default="sarel")):
         "current_pnl": 0.0,
         "from_queue": True,
     }
+    
+    # Live execution
+    if os.environ.get("LIVE_EXECUTION") == "true":
+        result = buy_to_open(ticker, target["option_exp"], target.get("direction", "CALL"), target["option_strike"])
+        if not result["success"]:
+            return {"error": f"Order failed: {result['status']}", "success": False}
+        trade["option_cost"] = result["fill_price"]
+        trade["cost_per_contract"] = round(result["fill_price"] * 100, 2)
+        trade["order_id"] = result["order_id"]
+        trade["execution"] = "live"
+    else:
+        trade["execution"] = "paper"
+    
     trades.append(trade)
     save_user_trades(user, trades)
     
@@ -691,7 +717,7 @@ def buy_from_queue(ticker: str, user: str = Query(default="sarel")):
     queue.pop(target_idx)
     save_queue(user, queue)
     
-    return {"success": True, "ticker": ticker, "cost": cost, "message": f"Bought {ticker} at ${current_ask:.2f}"}
+    return {"success": True, "ticker": ticker, "cost": trade["cost_per_contract"], "message": f"Bought {ticker} at ${trade['option_cost']:.2f}"}
 
 
 @app.post("/api/sync-alpaca")
