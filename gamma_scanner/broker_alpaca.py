@@ -328,12 +328,12 @@ def buy_to_open(ticker: str, expiration: str, direction: str, strike: float,
     result["quote_at_entry"] = quote
     
     # Determine limit price
-    # Strategy: start at the ask. If max_price is set and lower, use that.
-    # This gives us the best chance of immediate fill.
-    limit = quote["ask"]
+    # Strategy: start at the MID price (save on spread). If not filled, replace at ask.
+    # This saves $5-15 per trade on average vs paying full ask immediately.
+    limit = quote["mid"]
     if max_price and max_price < limit:
         limit = max_price
-        log(f"  Using max_price ${max_price:.2f} (below ask ${quote['ask']:.2f})")
+        log(f"  Using max_price ${max_price:.2f} (below mid ${quote['mid']:.2f})")
     
     # Reject if spread is too wide (>15% means illiquid, likely bad fill)
     if quote["spread_pct"] > 15:
@@ -372,12 +372,18 @@ def buy_to_open(ticker: str, expiration: str, direction: str, strike: float,
         log(f"  ⚠️ PARTIAL FILL: {result['filled_qty']}/{MIN_CONTRACTS} @ ${result['fill_price']:.2f} — canceled remainder")
         return result
     
-    # Step 5: Not filled — try replacing at more aggressive price
+    # Step 5: Not filled at mid — escalate toward ask
     current_limit = limit
     for attempt in range(REPLACE_ATTEMPTS):
-        # Move limit toward mid (more aggressive)
-        new_limit = round(current_limit + REPLACE_AGGRESSION_STEP, 2)
-        # Don't go above ask + 0.05 (that's basically a market order)
+        if attempt == 0:
+            # First replace: jump to the ask price
+            new_limit = round(quote["ask"], 2)
+        else:
+            # Second replace: slightly above ask
+            new_limit = round(quote["ask"] + REPLACE_AGGRESSION_STEP, 2)
+        
+        if new_limit <= current_limit:
+            break
         if new_limit > quote["ask"] + 0.05:
             log(f"  Won't chase above ask+0.05 (${quote['ask'] + 0.05:.2f})")
             break
