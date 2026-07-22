@@ -307,7 +307,7 @@ def check_positions_for_trades(trades, user_id=""):
                 trade["exit_reason"] = "EXPIRED"
                 trade["exit_date"] = today.isoformat()
                 trade["pnl"] = pnl_dollars
-                trade["pnl_pct"] = round(pnl_per_share / entry_cost * 100, 1)
+                trade["pnl_pct"] = round(pnl_per_share / entry_cost * 100, 1) if entry_cost > 0 else 0
                 log(f"  EXPIRED: {ticker} {direction} ${strike} | Intrinsic: ${intrinsic if stock_price else '?'} | P&L: ${pnl_dollars}")
                 notify(
                     f"⏰ {ticker} expired {'ITM' if pnl_dollars > 0 else 'worthless'}",
@@ -361,13 +361,15 @@ def check_positions_for_trades(trades, user_id=""):
         
         # Also get stock price for context
         stock_price = get_stock_price(ticker)
-        if stock_price:
+        if stock_price and trade.get("entry_price"):
             trade["current_price"] = stock_price
             if direction == "CALL":
                 stock_move = (stock_price - trade["entry_price"]) / trade["entry_price"] * 100
             else:
                 stock_move = (trade["entry_price"] - stock_price) / trade["entry_price"] * 100
             trade["stock_change_pct"] = round(stock_move, 2)
+        elif stock_price:
+            trade["current_price"] = stock_price
         
         modified = True
         

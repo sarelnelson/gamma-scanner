@@ -141,7 +141,7 @@ def format_position(t: dict) -> dict:
         "entry_date": t["entry_date"],
         "current_bid": t.get("current_option_bid"),
         "current_pnl_dollars": t.get("current_pnl", 0),
-        "current_pnl_pct": round((t.get("current_option_bid", t["option_cost"]) - t["option_cost"]) / t["option_cost"] * 100, 1) if t.get("current_option_bid") else None,
+        "current_pnl_pct": round((t.get("current_option_bid", t["option_cost"]) - t["option_cost"]) / t["option_cost"] * 100, 1) if t.get("current_option_bid") and t.get("option_cost") else None,
         "high_water_pct": t.get("high_water_pct"),
         "trailing_floor_pct": t.get("trailing_floor_pct"),
         "stock_price": t.get("current_price"),
