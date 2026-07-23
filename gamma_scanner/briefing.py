@@ -211,8 +211,10 @@ def get_recent_errors(today_str: str) -> list:
     """Pull recent errors from monitor.log."""
     errors = []
     try:
-        from config import DATA_DIR
+        from config import DATA_DIR, SCANNER_DIR
         log_path = os.path.join(DATA_DIR, "monitor.log")
+        if not os.path.exists(log_path):
+            log_path = os.path.join(SCANNER_DIR, "monitor.log")
         if not os.path.exists(log_path):
             log_path = "monitor.log"
         
@@ -234,8 +236,11 @@ def get_scan_summary(today_str: str) -> dict:
     """Summarize today's scan activity."""
     summary = {"scans_run": 0, "picks_found": 0, "entries_made": 0, "details": []}
     try:
-        from config import DATA_DIR
+        from config import DATA_DIR, SCANNER_DIR
+        # scan.log may be in DATA_DIR or SCANNER_DIR depending on which module writes it
         log_path = os.path.join(DATA_DIR, "scan.log")
+        if not os.path.exists(log_path):
+            log_path = os.path.join(SCANNER_DIR, "scan.log")
         if not os.path.exists(log_path):
             log_path = "scan.log"
         
