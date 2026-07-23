@@ -305,10 +305,12 @@ def health():
 def spy_context():
     """SPY price, daily change, and 5-day trend for market context."""
     try:
+        from datetime import timedelta
+        start = (datetime.utcnow() - timedelta(days=10)).strftime("%Y-%m-%d")
         resp = requests.get(
             f"{ALPACA_DATA_URL}/stocks/SPY/bars",
             headers=STOCK_HEADERS,
-            params={"timeframe": "1Day", "limit": 6, "adjustment": "split"},
+            params={"timeframe": "1Day", "limit": 7, "adjustment": "split", "start": start},
             timeout=5,
         )
         if resp.status_code != 200:
@@ -317,14 +319,25 @@ def spy_context():
         if len(bars) < 2:
             return {"error": "Insufficient data"}
         
-        current = bars[-1]["c"]
-        prev_close = bars[-2]["c"]
+        # Use snapshot for current intraday price
+        snap_resp = requests.get(
+            f"{ALPACA_DATA_URL}/stocks/SPY/snapshot",
+            headers=STOCK_HEADERS,
+            timeout=5,
+        )
+        if snap_resp.status_code == 200:
+            snap = snap_resp.json()
+            current = snap.get("latestTrade", {}).get("p", bars[-1]["c"])
+        else:
+            current = bars[-1]["c"]
+        
+        prev_close = bars[-2]["c"] if len(bars) >= 2 else bars[-1]["o"]
         change_pct = (current - prev_close) / prev_close * 100
         
-        result = {"price": current, "change_pct": round(change_pct, 2)}
+        result = {"price": round(current, 2), "change_pct": round(change_pct, 2)}
         
         if len(bars) >= 6:
-            price_5d_ago = bars[0]["c"]
+            price_5d_ago = bars[-6]["c"]
             change_5d = (current - price_5d_ago) / price_5d_ago * 100
             result["change_5d"] = round(change_5d, 2)
         
