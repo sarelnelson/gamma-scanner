@@ -139,6 +139,7 @@ def format_position(t: dict) -> dict:
         "expiration": t["option_exp"],
         "entry_cost": t["option_cost"],
         "entry_date": t["entry_date"],
+        "entry_time": t.get("entry_time"),
         "current_bid": t.get("current_option_bid"),
         "current_pnl_dollars": t.get("current_pnl", 0),
         "current_pnl_pct": round((t.get("current_option_bid", t["option_cost"]) - t["option_cost"]) / t["option_cost"] * 100, 1) if t.get("current_option_bid") and t.get("option_cost") else None,

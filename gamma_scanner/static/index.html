@@ -235,6 +235,25 @@ a:hover { text-decoration: underline; }
 </div>
 
 <!-- Mode Toggle -->
+<!-- Market Context Bar -->
+<div id="market-context" style="padding:0 28px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+  <div style="background:#161b22;border:1px solid #21262d;border-radius:8px;padding:8px 14px;font-size:12px;display:flex;align-items:center;gap:8px;">
+    <span style="color:#8b949e;">SPY</span>
+    <span id="spy-price" style="font-weight:600;">—</span>
+    <span id="spy-change" style="font-weight:600;">—</span>
+    <span id="spy-5d" style="color:#8b949e;font-size:11px;">—</span>
+  </div>
+  <div style="background:#161b22;border:1px solid #21262d;border-radius:8px;padding:8px 14px;font-size:12px;display:flex;align-items:center;gap:8px;">
+    <span style="color:#8b949e;">DTE</span>
+    <span id="dte-count" style="font-weight:700;font-size:16px;">—</span>
+    <span id="dte-label" style="color:#8b949e;font-size:11px;">days to 8/7 exp</span>
+  </div>
+  <div style="background:#161b22;border:1px solid #21262d;border-radius:8px;padding:8px 14px;font-size:12px;display:flex;align-items:center;gap:8px;">
+    <span style="color:#8b949e;">Buying Power</span>
+    <span id="buying-power" style="font-weight:600;">—</span>
+  </div>
+</div>
+
 <div class="mode-toggle">
   <button class="mode-btn active" onclick="setMode('loose')">🟢 Loose (≥60)</button>
   <button class="mode-btn" onclick="setMode('strict')">🔒 Strict (≥80)</button>
@@ -650,11 +669,11 @@ function renderTrades(mode) {
 
     return `
       <tr>
-        <td style="font-weight:700;">${t.ticker}<br><span style="font-size:10px;color:#8b949e;">exp ${t.option_exp?.slice(5) || ''}</span></td>
-        <td style="${dirClass};font-weight:600;">${t.direction}<br><span style="font-size:10px;color:#8b949e;">$${t.option_strike}</span></td>
+        <td style="font-weight:700;">${t.ticker}<br><span style="font-size:10px;color:#8b949e;">exp ${t.option_exp?.slice(5) || ''} (${getDTE(t.option_exp)}d)</span></td>
+        <td style="${dirClass};font-weight:600;">${t.direction}<br><span style="font-size:10px;color:#8b949e;">$${t.option_strike} ${getMoneyness(t)}</span></td>
         <td>${t.score}</td>
-        <td>${t.entry_date || '—'}<br><span style="font-size:10px;color:#8b949e;">${formatSetup(t.setup)}</span></td>
-        <td>${t.current_price ? '$' + t.current_price.toFixed(2) : '$' + (t.entry_price?.toFixed(2) || '—')} ${stockChg}<br><span style="font-size:10px;color:#8b949e;">entry $${t.entry_price?.toFixed(2) || '—'}</span></td>
+        <td>${formatEntryTime(t)}<br><span style="font-size:10px;color:#8b949e;">${formatSetup(t.setup)}</span></td>
+        <td>${t.current_price ? '$' + t.current_price.toFixed(2) : '$' + (t.entry_price?.toFixed(2) || '—')} ${stockChg}<br><span style="font-size:10px;color:#8b949e;">entry $${t.entry_price?.toFixed(2) || '—'} | BE $${getBreakeven(t)}</span></td>
         <td>$${entry.toFixed(2)}<br><span style="font-size:10px;color:#8b949e;">($${t.cost_per_contract?.toFixed(0) || (entry*100).toFixed(0)}/ct)</span></td>
         <td style="font-weight:600;${bid > entry ? 'color:#3fb950' : bid < entry ? 'color:#f85149' : ''}">${bid ? '$' + bid.toFixed(2) : '—'}</td>
         <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}<br><span style="font-size:11px;opacity:0.8;">(${pnlPct}%)</span></td>
@@ -740,6 +759,82 @@ function renderStatBlock(stats, picks) {
 function formatSetup(setup) {
   if (!setup) return '—';
   return setup.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function getDTE(expDate) {
+  if (!expDate) return '?';
+  const exp = new Date(expDate + 'T16:00:00');
+  const now = new Date();
+  const diff = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+  return diff >= 0 ? diff : 0;
+}
+
+function getBreakeven(t) {
+  // For calls: strike + option_cost = breakeven stock price
+  // For puts: strike - option_cost = breakeven stock price
+  if (!t.option_strike || !t.option_cost) return '?';
+  if (t.direction === 'CALL') {
+    return (t.option_strike + t.option_cost).toFixed(2);
+  } else {
+    return (t.option_strike - t.option_cost).toFixed(2);
+  }
+}
+
+function getMoneyness(t) {
+  if (!t.current_price || !t.option_strike) return '';
+  const diff = t.direction === 'CALL' 
+    ? t.current_price - t.option_strike 
+    : t.option_strike - t.current_price;
+  if (diff > 0) return `<span style="color:#3fb950;font-size:9px;">ITM $${diff.toFixed(2)}</span>`;
+  if (diff < 0) return `<span style="color:#f85149;font-size:9px;">OTM $${Math.abs(diff).toFixed(2)}</span>`;
+  return '<span style="color:#d29922;font-size:9px;">ATM</span>';
+}
+
+function formatEntryTime(t) {
+  if (t.entry_time) {
+    const d = new Date(t.entry_time);
+    const date = d.toLocaleDateString('en-US', {month:'short', day:'numeric', timeZone:'America/New_York'});
+    const time = d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/New_York'});
+    return `${date}<br><span style="font-size:10px;color:#58a6ff;">${time} ET</span>`;
+  }
+  return t.entry_date || '—';
+}
+
+async function fetchMarketContext() {
+  try {
+    // DTE calculation (all positions expire 8/7)
+    const dte = getDTE('2026-08-07');
+    document.getElementById('dte-count').textContent = dte;
+    const dteEl = document.getElementById('dte-count');
+    dteEl.style.color = dte <= 7 ? '#f85149' : dte <= 14 ? '#d29922' : '#e6edf3';
+
+    // SPY data via our API (proxied through server if available)
+    try {
+      const resp = await fetch('/api/spy-context');
+      if (resp.ok) {
+        const spy = await resp.json();
+        document.getElementById('spy-price').textContent = '$' + spy.price.toFixed(2);
+        const chgColor = spy.change_pct >= 0 ? '#3fb950' : '#f85149';
+        document.getElementById('spy-change').innerHTML = `<span style="color:${chgColor}">${spy.change_pct >= 0 ? '+' : ''}${spy.change_pct.toFixed(2)}%</span>`;
+        if (spy.change_5d !== undefined) {
+          const c5d = spy.change_5d >= 0 ? '#3fb950' : '#f85149';
+          document.getElementById('spy-5d').innerHTML = `5d: <span style="color:${c5d}">${spy.change_5d >= 0 ? '+' : ''}${spy.change_5d.toFixed(1)}%</span>`;
+        }
+      }
+    } catch(e) {}
+
+    // Buying power
+    try {
+      const resp = await fetch('/api/account?user=' + currentUser);
+      if (resp.ok) {
+        const acct = await resp.json();
+        const bp = acct.broker_buying_power || acct.available || 0;
+        document.getElementById('buying-power').textContent = '$' + bp.toLocaleString(undefined, {maximumFractionDigits:0});
+      }
+    } catch(e) {}
+  } catch(e) {
+    console.error('Market context error:', e);
+  }
 }
 
 // Pause/Unpause
@@ -900,8 +995,10 @@ async function closeAll() {
 // Initial fetch and auto-refresh
 fetchData();
 checkPauseStatus();
+fetchMarketContext();
 setInterval(fetchData, 30000);
 setInterval(checkPauseStatus, 30000);
+setInterval(fetchMarketContext, 60000); // SPY/DTE every 60s
 </script>
 </body>
 </html>

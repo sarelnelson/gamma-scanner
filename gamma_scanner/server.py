@@ -301,6 +301,38 @@ def health():
     }
 
 
+@app.get("/api/spy-context")
+def spy_context():
+    """SPY price, daily change, and 5-day trend for market context."""
+    try:
+        resp = requests.get(
+            f"{ALPACA_DATA_URL}/stocks/SPY/bars",
+            headers=STOCK_HEADERS,
+            params={"timeframe": "1Day", "limit": 6, "adjustment": "split"},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return {"error": "SPY data unavailable"}
+        bars = resp.json().get("bars", [])
+        if len(bars) < 2:
+            return {"error": "Insufficient data"}
+        
+        current = bars[-1]["c"]
+        prev_close = bars[-2]["c"]
+        change_pct = (current - prev_close) / prev_close * 100
+        
+        result = {"price": current, "change_pct": round(change_pct, 2)}
+        
+        if len(bars) >= 6:
+            price_5d_ago = bars[0]["c"]
+            change_5d = (current - price_5d_ago) / price_5d_ago * 100
+            result["change_5d"] = round(change_5d, 2)
+        
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/api/scan")
 def trigger_scan(user: str = Query(default="sarel")):
     """Manually trigger a scan."""
