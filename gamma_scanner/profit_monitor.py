@@ -352,11 +352,14 @@ def check_positions_for_trades(trades, user_id=""):
         trade["last_check"] = datetime.utcnow().isoformat()
         
         # Track previous bid for daily P&L calculation
-        # Reset prev_bid at start of each day
+        # Reset prev_bid at start of each TRADING day (not weekends/holidays)
+        # Only reset when we have a fresh market-hours quote
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        if trade.get("prev_bid_date") != today_str:
-            # New day — snapshot the opening bid as today's baseline
-            trade["prev_option_bid"] = trade.get("current_option_bid", bid)
+        is_weekday = datetime.utcnow().weekday() < 5  # Mon=0, Fri=4
+        market_hour = 13 <= datetime.utcnow().hour <= 20  # ~9AM-4PM ET in UTC
+        if trade.get("prev_bid_date") != today_str and is_weekday and market_hour:
+            # New trading day — snapshot the current bid as today's baseline
+            trade["prev_option_bid"] = bid  # Use the fresh bid we just fetched
             trade["prev_bid_date"] = today_str
         
         # Also get stock price for context
