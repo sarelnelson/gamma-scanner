@@ -801,8 +801,12 @@ function renderHistory(mode) {
       const pnlColor = pnl > 0 ? '#3fb950' : '#f85149';
       const exitReason = (t.exit_reason || t.status || '—');
       const highWater = t.high_water_pct ? `+${t.high_water_pct.toFixed(0)}%` : '—';
-      const held = t.entry_date && t.exit_date ? 
-        Math.ceil((new Date(t.exit_date) - new Date(t.entry_date)) / (1000*60*60*24)) : '?';
+      const held = t.held_days || (t.entry_date && t.exit_date ? 
+        Math.ceil((new Date(t.exit_date) - new Date(t.entry_date)) / (1000*60*60*24)) : '?');
+      const exitPrice = t.exit_fill_price || t.exit_option_bid;
+      const entryTime = t.entry_time ? new Date(t.entry_time).toLocaleString('en-US', {month:'short', day:'numeric', hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/New_York'}) : t.entry_date || '?';
+      const exitTime = t.exit_time ? new Date(t.exit_time).toLocaleString('en-US', {month:'short', day:'numeric', hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/New_York'}) : t.exit_date || '?';
+      const returnOnInvestment = t.option_cost ? `${((pnl) / (t.option_cost * 100) * 100).toFixed(0)}% return` : '';
 
       return `<div class="mobile-trade-card" style="border-color:${pnl > 0 ? '#1a4d2e' : '#4d1a1a'};">
         <div class="mtc-header">
@@ -816,10 +820,14 @@ function renderHistory(mode) {
             <div style="font-size:12px;font-weight:500;">(${pnlPct}%)</div>
           </div>
         </div>
-        <div class="mtc-row"><span class="mtc-label">Entry</span><span class="mtc-value">$${t.option_cost?.toFixed(2) || '?'} on ${t.entry_date || '?'}</span></div>
-        <div class="mtc-row"><span class="mtc-label">Exit</span><span class="mtc-value">${t.exit_date || '?'} (held ${held} days)</span></div>
+        <div class="mtc-row"><span class="mtc-label">Entered</span><span class="mtc-value">${entryTime} ET</span></div>
+        <div class="mtc-row"><span class="mtc-label">Exited</span><span class="mtc-value">${exitTime} ET</span></div>
+        <div class="mtc-row"><span class="mtc-label">Held</span><span class="mtc-value">${held} days</span></div>
+        <div class="mtc-row"><span class="mtc-label">Entry Price</span><span class="mtc-value">$${t.option_cost?.toFixed(2) || '?'} ($${(t.option_cost * 100)?.toFixed(0) || '?'}/contract)</span></div>
+        <div class="mtc-row"><span class="mtc-label">Exit Price</span><span class="mtc-value" style="color:${pnlColor};">${exitPrice ? '$' + exitPrice.toFixed(2) + ' ($' + (exitPrice * 100).toFixed(0) + '/contract)' : '—'}</span></div>
         <div class="mtc-row"><span class="mtc-label">High Water</span><span class="mtc-value" style="color:#58a6ff;">${highWater}</span></div>
-        <div class="mtc-row"><span class="mtc-label">Exit Reason</span><span class="mtc-value">${exitReason}</span></div>
+        <div class="mtc-row"><span class="mtc-label">Exit Reason</span><span class="mtc-value" style="font-size:11px;">${exitReason}</span></div>
+        ${t.score ? `<div class="mtc-row"><span class="mtc-label">Score at Entry</span><span class="mtc-value">${t.score}</span></div>` : ''}
       </div>`;
     }).join('');
   }
