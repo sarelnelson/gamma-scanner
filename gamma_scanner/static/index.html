@@ -351,6 +351,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody id="history-body"></tbody>
   </table>
+  <div class="mobile-trades" id="mobile-history" style="display:none;"></div>
 </div>
 
 <script>
@@ -790,6 +791,38 @@ function renderHistory(mode) {
       </tr>
     `;
   }).join('');
+
+  // Mobile history cards
+  const mobileHistory = document.getElementById('mobile-history');
+  if (mobileHistory) {
+    mobileHistory.innerHTML = trades.map(t => {
+      const pnl = t.pnl || 0;
+      const pnlPct = t.pnl_pct || (t.option_cost > 0 ? ((pnl / (t.option_cost * 100)) * 100).toFixed(0) : '?');
+      const pnlColor = pnl > 0 ? '#3fb950' : '#f85149';
+      const exitReason = (t.exit_reason || t.status || '—');
+      const highWater = t.high_water_pct ? `+${t.high_water_pct.toFixed(0)}%` : '—';
+      const held = t.entry_date && t.exit_date ? 
+        Math.ceil((new Date(t.exit_date) - new Date(t.entry_date)) / (1000*60*60*24)) : '?';
+
+      return `<div class="mobile-trade-card" style="border-color:${pnl > 0 ? '#1a4d2e' : '#4d1a1a'};">
+        <div class="mtc-header">
+          <div>
+            <span class="mtc-ticker">${t.ticker}</span>
+            <span style="color:${t.direction==='CALL'?'#3fb950':'#f85149'};font-size:12px;font-weight:600;margin-left:6px;">${t.direction} $${t.option_strike}</span>
+            <span style="font-size:11px;margin-left:6px;">${pnl > 0 ? '✅' : '❌'}</span>
+          </div>
+          <div class="mtc-pnl" style="color:${pnlColor}">
+            ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}
+            <div style="font-size:12px;font-weight:500;">(${pnlPct}%)</div>
+          </div>
+        </div>
+        <div class="mtc-row"><span class="mtc-label">Entry</span><span class="mtc-value">$${t.option_cost?.toFixed(2) || '?'} on ${t.entry_date || '?'}</span></div>
+        <div class="mtc-row"><span class="mtc-label">Exit</span><span class="mtc-value">${t.exit_date || '?'} (held ${held} days)</span></div>
+        <div class="mtc-row"><span class="mtc-label">High Water</span><span class="mtc-value" style="color:#58a6ff;">${highWater}</span></div>
+        <div class="mtc-row"><span class="mtc-label">Exit Reason</span><span class="mtc-value">${exitReason}</span></div>
+      </div>`;
+    }).join('');
+  }
 }
 
 function renderComparison() {
