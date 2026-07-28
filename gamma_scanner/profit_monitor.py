@@ -537,6 +537,19 @@ def run_monitor():
     except Exception as e:
         log(f"  Briefing not configured: {e}")
     
+    # Force reset daily baselines on startup (clears stale weekend data)
+    try:
+        from user_manager import get_active_users, load_user_trades, save_user_trades
+        for uid in get_active_users():
+            trades = load_user_trades(uid)
+            for t in trades:
+                if t.get("status") == "open":
+                    t.pop("prev_bid_date", None)  # Force re-baseline on next check
+            save_user_trades(uid, trades)
+        log("  Daily baselines cleared — will re-set from fresh quotes ✓")
+    except Exception as e:
+        log(f"  Baseline reset failed: {e}")
+    
     consecutive_errors = 0
     scans_completed_today = set()
     
