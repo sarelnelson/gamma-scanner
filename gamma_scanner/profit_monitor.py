@@ -537,16 +537,35 @@ def run_monitor():
     except Exception as e:
         log(f"  Briefing not configured: {e}")
     
-    # Force reset daily baselines on startup (clears stale weekend data)
+    # Clear stale baselines on startup (only if from weekend/non-today)
+    # Don't clear if prev_bid_date is already today — that means a valid baseline exists
     try:
         from user_manager import get_active_users, load_user_trades, save_user_trades
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        today_weekday = datetime.utcnow().weekday()  # Mon=0, Fri=4
         for uid in get_active_users():
             trades = load_user_trades(uid)
+            cleared = 0
             for t in trades:
                 if t.get("status") == "open":
-                    t.pop("prev_bid_date", None)  # Force re-baseline on next check
-            save_user_trades(uid, trades)
-        log("  Daily baselines cleared — will re-set from fresh quotes ✓")
+                    prev_date = t.get("prev_bid_date", "")
+                    if prev_date == today_str:
+                        pass  # Already baselined today, leave it
+                    elif prev_date:
+                        # Check if prev_bid_date is a weekend day (stale)
+                        try:
+                            pd = datetime.strptime(prev_date, "%Y-%m-%d")
+                            if pd.weekday() >= 5:  # Saturday or Sunday
+                                t.pop("prev_bid_date", None)
+                                cleared += 1
+                        except:
+                            t.pop("prev_bid_date", None)
+                            cleared += 1
+            if cleared:
+                save_user_trades(uid, trades)
+                log(f"  Cleared {cleared} stale weekend baselines for {uid}")
+            else:
+                log(f"  Baselines OK for {uid} (already set today or from valid trading day)")
     except Exception as e:
         log(f"  Baseline reset failed: {e}")
     
