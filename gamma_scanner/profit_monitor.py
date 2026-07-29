@@ -351,15 +351,24 @@ def check_positions_for_trades(trades, user_id=""):
         trade["current_option_mid"] = mid
         trade["last_check"] = datetime.utcnow().isoformat()
         
-        # Track previous bid for daily P&L calculation
-        # Reset prev_bid at start of each TRADING day (not weekends/holidays)
-        # Only reset when we have a fresh market-hours quote
+        # Track previous day's closing bid for daily P&L calculation
+        # "Today's Move" = current bid - yesterday's closing bid
+        # We store closing_bid at market close (20:00 UTC check) and use it as the baseline
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        is_weekday = datetime.utcnow().weekday() < 5  # Mon=0, Fri=4
-        market_hour = 13 <= datetime.utcnow().hour <= 20  # ~9AM-4PM ET in UTC
-        if trade.get("prev_bid_date") != today_str and is_weekday and market_hour:
-            # New trading day — snapshot the current bid as today's baseline
-            trade["prev_option_bid"] = bid  # Use the fresh bid we just fetched
+        
+        # At market close (20:00-20:05 UTC), snapshot today's bid as tomorrow's baseline
+        if datetime.utcnow().hour == 20 and datetime.utcnow().minute < 6:
+            trade["closing_bid"] = bid
+            trade["closing_bid_date"] = today_str
+        
+        # Set prev_option_bid from the last known closing_bid (for dashboard daily calc)
+        # Only update if we have a closing bid from a prior day
+        if trade.get("closing_bid_date") and trade.get("closing_bid_date") != today_str:
+            trade["prev_option_bid"] = trade["closing_bid"]
+            trade["prev_bid_date"] = today_str
+        elif not trade.get("prev_bid_date"):
+            # No baseline at all yet — use current bid as fallback (first time setup)
+            trade["prev_option_bid"] = bid
             trade["prev_bid_date"] = today_str
         
         # Also get stock price for context
@@ -537,35 +546,23 @@ def run_monitor():
     except Exception as e:
         log(f"  Briefing not configured: {e}")
     
-    # Clear stale baselines on startup (only if from weekend/non-today)
-    # Don't clear if prev_bid_date is already today — that means a valid baseline exists
+    # Set daily baselines from stored closing bids (survives restarts)
     try:
         from user_manager import get_active_users, load_user_trades, save_user_trades
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        today_weekday = datetime.utcnow().weekday()  # Mon=0, Fri=4
         for uid in get_active_users():
             trades = load_user_trades(uid)
-            cleared = 0
+            updated = 0
             for t in trades:
-                if t.get("status") == "open":
-                    prev_date = t.get("prev_bid_date", "")
-                    if prev_date == today_str:
-                        pass  # Already baselined today, leave it
-                    elif prev_date:
-                        # Check if prev_bid_date is a weekend day (stale)
-                        try:
-                            pd = datetime.strptime(prev_date, "%Y-%m-%d")
-                            if pd.weekday() >= 5:  # Saturday or Sunday
-                                t.pop("prev_bid_date", None)
-                                cleared += 1
-                        except:
-                            t.pop("prev_bid_date", None)
-                            cleared += 1
-            if cleared:
+                if t.get("status") == "open" and t.get("closing_bid"):
+                    # If closing_bid is from a prior day, use it as today's baseline
+                    if t.get("closing_bid_date", "") != today_str:
+                        t["prev_option_bid"] = t["closing_bid"]
+                        t["prev_bid_date"] = today_str
+                        updated += 1
+            if updated:
                 save_user_trades(uid, trades)
-                log(f"  Cleared {cleared} stale weekend baselines for {uid}")
-            else:
-                log(f"  Baselines OK for {uid} (already set today or from valid trading day)")
+            log(f"  {uid}: {updated} baselines set from prior close")
     except Exception as e:
         log(f"  Baseline reset failed: {e}")
     
