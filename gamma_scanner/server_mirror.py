@@ -82,7 +82,7 @@ def positions_to_trades(user_data: dict) -> list:
             "prev_bid_date": pos["entry_date"],
         })
     
-    for t in user_data.get("closed_today", []):
+    for t in user_data.get("closed_all", user_data.get("closed_today", [])):
         trades.append({
             "ticker": t["ticker"],
             "direction": t["direction"],

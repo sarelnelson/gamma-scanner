@@ -96,7 +96,11 @@ def get_market_status() -> str:
 def build_user_summary(user_id: str, trades: list, today_str: str) -> dict:
     """Build per-user summary."""
     open_trades = [t for t in trades if t.get("status") == "open"]
-    closed_today = [t for t in trades if t.get("status") == "closed" and t.get("exit_date") == today_str]
+    closed_all = [t for t in trades if t.get("status") in ("closed", "expired")]
+    closed_today = [t for t in closed_all if t.get("exit_date") == today_str]
+    # Last 7 days of closed trades for history display
+    week_ago = (datetime.strptime(today_str, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+    closed_recent = [t for t in closed_all if t.get("exit_date", "") >= week_ago]
     opened_today = [t for t in trades if t.get("entry_date") == today_str and t.get("status") == "open"]
     
     # Account info
@@ -117,6 +121,7 @@ def build_user_summary(user_id: str, trades: list, today_str: str) -> dict:
     
     total_open_pnl = sum(t.get("current_pnl", 0) for t in open_trades)
     total_closed_pnl = sum(t.get("pnl", 0) for t in closed_today)
+    total_realized = sum(t.get("pnl", 0) for t in closed_all)
     
     return {
         "paused": paused,
@@ -124,9 +129,14 @@ def build_user_summary(user_id: str, trades: list, today_str: str) -> dict:
         "open_positions": [format_position(t) for t in open_trades],
         "opened_today": [format_trade_brief(t) for t in opened_today],
         "closed_today": [format_closed_trade(t) for t in closed_today],
+        "closed_all": [format_closed_trade(t) for t in closed_recent],
         "total_open_pnl": round(total_open_pnl, 2),
         "total_closed_pnl_today": round(total_closed_pnl, 2),
+        "total_realized_pnl": round(total_realized, 2),
         "position_count": len(open_trades),
+        "total_closed_count": len(closed_all),
+        "win_count": sum(1 for t in closed_all if t.get("pnl", 0) > 0),
+        "loss_count": sum(1 for t in closed_all if t.get("pnl", 0) <= 0),
     }
 
 
