@@ -79,6 +79,9 @@ a:hover { text-decoration: underline; }
 .trades-table .status-open { color: #58a6ff; }
 .trades-table .status-closed { color: #8b949e; }
 
+/* Mobile trade cards — hidden on desktop, shown on mobile */
+.mobile-trades { display: none; }
+
 /* Comparison */
 .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 0 28px 28px; }
 .comparison .col { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 18px; }
@@ -317,7 +320,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody id="trades-body"></tbody>
   </table>
-  <div class="mobile-trades" id="mobile-trades" style="display:none;"></div>
+  <div class="mobile-trades" id="mobile-trades"></div>
 </div>
 
 <!-- Comparison (only shown in 'both' mode) -->
@@ -351,7 +354,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody id="history-body"></tbody>
   </table>
-  <div class="mobile-trades" id="mobile-history" style="display:none;"></div>
+  <div class="mobile-trades" id="mobile-history"></div>
 </div>
 
 <script>
