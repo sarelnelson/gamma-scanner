@@ -315,6 +315,12 @@ def check_positions_for_trades(trades, user_id=""):
                     priority="low",
                     tags="hourglass"
                 )
+                # Record close in position history
+                try:
+                    from position_history import record_close
+                    record_close(trade)
+                except:
+                    pass
                 modified = True
                 continue
             
@@ -384,6 +390,13 @@ def check_positions_for_trades(trades, user_id=""):
             trade["current_price"] = stock_price
         
         modified = True
+        
+        # Record position snapshot for historical analysis
+        try:
+            from position_history import record_snapshot
+            record_snapshot(trade)
+        except:
+            pass
         
         # === RATCHETING TRAILING STOP ===
         # Once +100%, lock in a floor. Floor ratchets up in 50% increments with 20% cushion:
@@ -468,6 +481,12 @@ def check_positions_for_trades(trades, user_id=""):
                 priority="high",
                 tags="moneybag,chart_with_upwards_trend"
             )
+            # Record close in position history
+            try:
+                from position_history import record_close
+                record_close(trade)
+            except:
+                pass
         else:
             # Just log status
             floor_str = f" [floor:+{current_floor}%]" if current_floor else ""
