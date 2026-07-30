@@ -511,7 +511,7 @@ function render() {
   renderHistory(mode);
 }
 
-function renderSummary(mode) {
+async function renderSummary(mode) {
   let stats, picks;
   if (mode === 'both') {
     // Combined stats
@@ -557,41 +557,20 @@ function renderSummary(mode) {
   document.getElementById('win-rate-sub').textContent = `${stats.wins}W / ${stats.losses}L`;
   document.getElementById('open-trades').className = 'value ' + (stats.open > 0 ? 'green' : 'neutral');
 
-  // Daily P&L: sum of today's realized exits + change in unrealized for open positions
-  const today = new Date().toISOString().slice(0, 10);
-  const trades = stats.trades || [];
-  
-  // Today's realized (trades closed today)
-  const todayRealized = trades
-    .filter(t => (t.status === 'closed' || t.status === 'expired') && t.exit_date === today)
-    .reduce((sum, t) => sum + (t.pnl || 0), 0);
-  
-  // Today's unrealized change: only for positions where we have today's baseline
-  let todayUnrealized = 0;
-  const openTrades = trades.filter(t => t.status === 'open');
-  const todayStr = new Date().toISOString().slice(0, 10);
-  for (const t of openTrades) {
-    const bid = t.current_option_bid || 0;
-    if (t.entry_date === todayStr) {
-      // Entered today — daily P&L is just current unrealized from entry
-      todayUnrealized += (t.current_pnl || 0);
-    } else if (t.prev_bid_date === todayStr && t.prev_option_bid) {
-      // Have today's opening baseline — show real daily move
-      todayUnrealized += (bid - t.prev_option_bid) * 100;
+  // Daily P&L: fetch from Alpaca's lastday_price (accurate, no baseline bugs)
+  try {
+    const dailyResp = await fetch('/api/daily-move');
+    if (dailyResp.ok) {
+      const dailyData = await dailyResp.json();
+      const dailyTotal = dailyData.total || 0;
+      const dailyEl = document.getElementById('daily-pnl');
+      dailyEl.textContent = `${dailyTotal >= 0 ? '+' : ''}$${dailyTotal.toFixed(0)}`;
+      dailyEl.className = 'value ' + (dailyTotal > 0 ? 'green' : dailyTotal < 0 ? 'red' : 'neutral');
+      document.getElementById('daily-pnl-sub').textContent = 'vs yesterday close (Alpaca)';
     }
-    // If prev_bid_date is not today, skip — we don't have a reliable today baseline
+  } catch(e) {
+    document.getElementById('daily-pnl').textContent = '—';
   }
-  
-  const dailyTotal = todayRealized + todayUnrealized;
-  const dailyEl = document.getElementById('daily-pnl');
-  dailyEl.textContent = `${dailyTotal >= 0 ? '+' : ''}$${dailyTotal.toFixed(2)}`;
-  dailyEl.className = 'value ' + (dailyTotal > 0 ? 'green' : dailyTotal < 0 ? 'red' : 'neutral');
-  
-  const dailySub = document.getElementById('daily-pnl-sub');
-  let subParts = [];
-  if (todayRealized !== 0) subParts.push(`realized: $${todayRealized >= 0 ? '+' : ''}${todayRealized.toFixed(0)}`);
-  if (todayUnrealized !== 0) subParts.push(`unrealized: $${todayUnrealized >= 0 ? '+' : ''}${todayUnrealized.toFixed(0)}`);
-  dailySub.textContent = subParts.length > 0 ? subParts.join(' | ') : 'No change today';
 }
 
 function renderPicks(mode) {

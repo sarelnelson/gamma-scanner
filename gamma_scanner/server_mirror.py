@@ -219,6 +219,29 @@ def last_scan():
     }
 
 
+@app.get("/api/daily-move")
+def daily_move():
+    """Today's P&L from Alpaca's lastday_price."""
+    try:
+        ALPACA_HEADERS = {
+            "APCA-API-KEY-ID": os.getenv("ALPACA_API_KEY", "PKOMKRLONHFRTJIPY3OTSRQYDP"),
+            "APCA-API-SECRET-KEY": os.getenv("ALPACA_SECRET_KEY", "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4"),
+        }
+        resp = requests.get("https://paper-api.alpaca.markets/v2/positions", headers=ALPACA_HEADERS, timeout=5)
+        if resp.status_code != 200:
+            return {"error": "Can't fetch positions"}
+        positions = resp.json()
+        total = 0
+        for p in positions:
+            qty = int(p["qty"])
+            current = float(p["current_price"])
+            lastday = float(p.get("lastday_price", current))
+            total += (current - lastday) * qty * 100
+        return {"total": round(total, 0)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/spy-context")
 def spy_context():
     """SPY price, daily change, and 5-day trend."""

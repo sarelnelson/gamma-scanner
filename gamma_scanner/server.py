@@ -301,6 +301,29 @@ def health():
     }
 
 
+@app.get("/api/daily-move")
+def daily_move():
+    """Today's P&L move calculated from Alpaca's lastday_price (yesterday's close)."""
+    try:
+        from broker_alpaca import BASE_URL, HEADERS
+        resp = requests.get(f"{BASE_URL}/v2/positions", headers=HEADERS, timeout=5)
+        if resp.status_code != 200:
+            return {"error": "Can't fetch positions"}
+        positions = resp.json()
+        total = 0
+        details = []
+        for p in positions:
+            qty = int(p["qty"])
+            current = float(p["current_price"])
+            lastday = float(p.get("lastday_price", current))
+            move = (current - lastday) * qty * 100
+            total += move
+            details.append({"symbol": p["symbol"][:4], "move": round(move, 0)})
+        return {"total": round(total, 0), "details": details}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/spy-context")
 def spy_context():
     """SPY price, daily change, and 5-day trend for market context."""
