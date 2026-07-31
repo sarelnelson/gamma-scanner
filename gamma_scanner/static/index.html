@@ -276,9 +276,8 @@ a:hover { text-decoration: underline; }
 </div>
 
 <div class="mode-toggle">
-  <button class="mode-btn active" onclick="setMode('loose')">🟢 Loose (≥60)</button>
-  <button class="mode-btn" onclick="setMode('strict')">🔒 Strict (≥80)</button>
-  <button class="mode-btn" onclick="setMode('both')">⚖️ Compare</button>
+  <button class="mode-btn active" onclick="setMode('loose')">📊 All Trades</button>
+  <button class="mode-btn" onclick="setMode('strict')">⭐ Score 80+</button>
 </div>
 
 <!-- Picks Section -->
@@ -411,8 +410,7 @@ function setMode(mode) {
   document.querySelectorAll('.mode-btn').forEach((btn, i) => {
     btn.classList.toggle('active', 
       (mode === 'loose' && i === 0) || 
-      (mode === 'strict' && i === 1) || 
-      (mode === 'both' && i === 2)
+      (mode === 'strict' && i === 1)
     );
   });
   render();
@@ -495,48 +493,46 @@ function render() {
   if (!perfData || !picksData) return;
 
   const mode = currentMode;
-  const showComparison = mode === 'both';
 
-  document.getElementById('comparison-section').style.display = showComparison ? 'grid' : 'none';
-  document.getElementById('picks-section').style.display = showComparison ? 'none' : 'block';
-  document.getElementById('trades-section').style.display = showComparison ? 'none' : 'block';
+  document.getElementById('comparison-section').style.display = 'none';
+  document.getElementById('picks-section').style.display = 'block';
+  document.getElementById('trades-section').style.display = 'block';
 
-  if (showComparison) {
-    renderComparison();
-  } else {
-    renderPicks(mode);
-    renderTrades(mode);
+  // When mode is 'strict', we synthesize it by filtering loose trades to score >= 80
+  if (mode === 'strict' && perfData.loose) {
+    const allTrades = perfData.loose.trades || [];
+    const filtered = allTrades.filter(t => (t.score || 0) >= 80);
+    const openF = filtered.filter(t => t.status === 'open');
+    const closedF = filtered.filter(t => t.status === 'closed' || t.status === 'expired');
+    const winsF = closedF.filter(t => (t.pnl || 0) > 0);
+    perfData.strict = {
+      total: filtered.length,
+      open: openF.length,
+      closed: closedF.length,
+      wins: winsF.length,
+      losses: closedF.length - winsF.length,
+      win_rate: closedF.length > 0 ? round(winsF.length / closedF.length * 100, 1) : 0,
+      total_pnl: round(closedF.reduce((s, t) => s + (t.pnl || 0), 0), 2),
+      open_pnl: round(openF.reduce((s, t) => s + (t.current_pnl || 0), 0), 2),
+      avg_score: filtered.length > 0 ? round(filtered.reduce((s, t) => s + (t.score || 0), 0) / filtered.length, 1) : 0,
+      trades: filtered,
+    };
   }
+
+  renderPicks(mode);
+  renderTrades(mode);
   renderSummary(mode);
   renderHistory(mode);
 }
 
+function round(n, d) { return Math.round(n * Math.pow(10, d)) / Math.pow(10, d); }
+
 async function renderSummary(mode) {
   let stats, picks;
-  if (mode === 'both') {
-    // Combined stats
-    const s = perfData.strict;
-    const l = perfData.loose;
-    const totalPicks = (picksData.strict?.length || 0) + (picksData.loose?.length || 0);
-    document.getElementById('total-picks').textContent = totalPicks;
-    document.getElementById('picks-sub').textContent = `${picksData.strict?.length || 0} strict + ${picksData.loose?.length || 0} loose`;
-    document.getElementById('open-trades').textContent = perfData.total_open;
-    document.getElementById('open-pnl-sub').textContent = `Unrealized: $${(s.open_pnl + l.open_pnl).toFixed(2)}`;
-    const totalPnl = perfData.combined_pnl;
-    const pnlEl = document.getElementById('realized-pnl');
-    pnlEl.textContent = `$${totalPnl.toFixed(2)}`;
-    pnlEl.className = 'value ' + (totalPnl > 0 ? 'green' : totalPnl < 0 ? 'red' : 'neutral');
-    const totalClosed = s.closed + l.closed;
-    const totalWins = s.wins + l.wins;
-    document.getElementById('pnl-record').textContent = `${totalClosed} closed trades`;
-    const wr = totalClosed > 0 ? (totalWins / totalClosed * 100).toFixed(1) : '0';
-    document.getElementById('win-rate').textContent = `${wr}%`;
-    document.getElementById('win-rate-sub').textContent = `${totalWins}W / ${totalClosed - totalWins}L`;
-    return;
-  }
 
   stats = perfData[mode];
-  picks = picksData[mode] || [];
+  if (!stats) stats = perfData.loose; // fallback
+  picks = picksData[mode] || picksData.loose || [];
 
   document.getElementById('total-picks').textContent = picks.length;
   document.getElementById('picks-sub').textContent = picks.length > 0 
@@ -741,13 +737,8 @@ function renderTrades(mode) {
 
 function renderHistory(mode) {
   let trades;
-  if (mode === 'both') {
-    const st = perfData.strict?.trades || [];
-    const lt = perfData.loose?.trades || [];
-    trades = [...st, ...lt].filter(t => t.status === 'closed' || t.status === 'expired');
-  } else {
-    trades = (perfData[mode]?.trades || []).filter(t => t.status === 'closed' || t.status === 'expired');
-  }
+  const stats = perfData[mode] || perfData.loose;
+  trades = (stats?.trades || []).filter(t => t.status === 'closed' || t.status === 'expired');
 
   document.getElementById('history-count').textContent = trades.length;
   const tbody = document.getElementById('history-body');
