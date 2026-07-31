@@ -172,14 +172,21 @@ def format_position(t: dict) -> dict:
 
 
 def format_trade_brief(t: dict) -> dict:
-    """Brief format for new entries."""
+    """Brief format for new entries — includes scanner context."""
     return {
         "ticker": t["ticker"],
         "direction": t["direction"],
         "strike": t["option_strike"],
+        "expiration": t.get("option_exp"),
         "score": t.get("score"),
         "entry_cost": t["option_cost"],
+        "entry_price": t.get("entry_price"),
         "entry_time": t.get("entry_time"),
+        "setup": t.get("setup"),
+        "rsi_at_entry": t.get("rsi_at_entry"),
+        "atr_pct": t.get("atr_pct"),
+        "current_pnl": t.get("current_pnl", 0),
+        "current_option_bid": t.get("current_option_bid"),
     }
 
 

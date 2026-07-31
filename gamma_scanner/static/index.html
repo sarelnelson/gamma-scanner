@@ -608,18 +608,25 @@ function renderPicks(mode) {
     const pnl = t.current_pnl || 0;
     const pnlColor = pnl > 0 ? '#3fb950' : pnl < 0 ? '#f85149' : '#8b949e';
     const isToday = t.entry_date === today;
+    const daysAgo = Math.floor((new Date() - new Date(t.entry_date)) / (1000*60*60*24));
+    const daysLabel = isToday ? 'TODAY' : daysAgo === 1 ? 'Yesterday' : `${daysAgo}d ago`;
+    const entryTime = t.entry_time ? new Date(t.entry_time).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/New_York'}) : '';
+    const pnlPct = t.option_cost > 0 && t.current_option_bid ? ((t.current_option_bid - t.option_cost) / t.option_cost * 100).toFixed(0) : '—';
+    const dte = getDTE(t.option_exp);
+    const be = getBreakeven(t);
     return `
       <div class="pick-card">
         <div class="header">
           <span class="ticker" style="font-size:18px;font-weight:700;">${t.ticker}</span>
           <span class="direction ${t.direction?.toLowerCase()}" style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;background:${t.direction==='CALL'?'#0d2818':'#2d1215'};color:${t.direction==='CALL'?'#3fb950':'#f85149'}">${t.direction}</span>
-          ${isToday ? '<span style="font-size:10px;color:#58a6ff;margin-left:4px;">TODAY</span>' : ''}
-          <span style="margin-left:auto;font-size:18px;font-weight:700;color:${pnl>=0?'#3fb950':'#f85149'}">$${pnl.toFixed(0)}</span>
+          <span style="font-size:10px;color:#58a6ff;margin-left:4px;">${daysLabel}</span>
+          <span style="margin-left:auto;font-size:18px;font-weight:700;color:${pnlColor}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)} <span style="font-size:12px;">(${pnlPct}%)</span></span>
         </div>
         <div style="font-size:12px;color:#8b949e;margin-top:8px;">
-          <div>Strike: $${t.option_strike} | Exp: ${t.option_exp?.slice(5)}</div>
-          <div>Entry: $${t.option_cost?.toFixed(2)} | Bid: $${t.current_option_bid || '?'}</div>
-          <div>Score: ${t.score} | Entered: ${t.entry_date}</div>
+          <div style="display:flex;justify-content:space-between;"><span>Strike $${t.option_strike} | Exp ${t.option_exp?.slice(5)} (${dte}d)</span><span style="color:#58a6ff;">Score: ${t.score || '?'}</span></div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px;"><span>Entry $${t.option_cost?.toFixed(2)} → Bid $${t.current_option_bid?.toFixed(2) || '?'}</span><span>BE $${be}</span></div>
+          <div style="margin-top:3px;">Stock: $${t.current_price?.toFixed(2) || t.entry_price?.toFixed(2) || '?'} ${t.stock_change_pct ? `(${t.stock_change_pct >= 0 ? '+' : ''}${t.stock_change_pct.toFixed(1)}%)` : ''}</div>
+          <div style="margin-top:3px;color:#6b7280;font-size:11px;">${entryTime ? entryTime + ' ET | ' : ''}${t.setup ? t.setup.replace(/_/g,' ') : 'oversold bounce'}</div>
         </div>
       </div>`;
   }).join('');
@@ -715,13 +722,14 @@ function renderTrades(mode) {
             <div style="font-size:12px;font-weight:500;">(${pnlPct}%)</div>
           </div>
         </div>
-        <div class="mtc-row"><span class="mtc-label">Entry</span><span class="mtc-value">$${entry.toFixed(2)} → Bid $${bid?.toFixed(2) || '?'}</span></div>
-        <div class="mtc-row"><span class="mtc-label">Stock</span><span class="mtc-value">$${t.current_price?.toFixed(2) || '?'} <span style="color:${itmColor};font-size:11px;">${itmOtm}</span></span></div>
-        <div class="mtc-row"><span class="mtc-label">Breakeven</span><span class="mtc-value">$${be} (need ${t.current_price ? ((parseFloat(be) - t.current_price) / t.current_price * 100).toFixed(1) : '?'}%)</span></div>
+        <div class="mtc-row"><span class="mtc-label">Option</span><span class="mtc-value">Entry $${entry.toFixed(2)} → Bid $${bid?.toFixed(2) || '?'}</span></div>
+        <div class="mtc-row"><span class="mtc-label">Stock</span><span class="mtc-value">$${t.current_price?.toFixed(2) || '?'} <span style="color:${itmColor};font-size:11px;">${itmOtm}</span> (entry $${t.entry_price?.toFixed(2) || '?'})</span></div>
+        <div class="mtc-row"><span class="mtc-label">Breakeven</span><span class="mtc-value">$${be} (stock needs ${t.current_price ? ((parseFloat(be) - t.current_price) / t.current_price * 100).toFixed(1) : '?'}%)</span></div>
+        <div class="mtc-row"><span class="mtc-label">Held</span><span class="mtc-value">${getDaysHeld(t)} days (${dte} DTE remaining)</span></div>
         <div class="mtc-row"><span class="mtc-label">Entered</span><span class="mtc-value">${formatEntryTime(t)}</span></div>
-        <div class="mtc-row"><span class="mtc-label">Expires</span><span class="mtc-value">${t.option_exp?.slice(5) || '?'} (${dte} days)</span></div>
-        ${hw ? `<div class="mtc-row"><span class="mtc-label">High Water</span><span class="mtc-value" style="color:#58a6ff;">+${hw.toFixed(0)}%${floor ? ' → Floor +' + floor + '%' : ' (no floor yet)'}</span></div>` : ''}
-        ${floor ? `<div class="mtc-row"><span class="mtc-label">Trail Stop</span><span class="mtc-value" style="color:#d29922;">Sells at +${floor}% (currently ${pnlPct}%)</span></div>` : ''}
+        ${hw ? `<div class="mtc-row"><span class="mtc-label">High Water</span><span class="mtc-value" style="color:#58a6ff;">+${hw.toFixed(0)}% <span style="color:#8b949e;font-size:10px;">(need +${(100 - hw).toFixed(0)}% more to activate trail)</span></span></div>` : 
+              `<div class="mtc-row"><span class="mtc-label">Trail</span><span class="mtc-value" style="color:#8b949e;">Need +${(100 - parseFloat(pnlPct || 0)).toFixed(0)}% more to activate</span></div>`}
+        ${floor ? `<div class="mtc-row"><span class="mtc-label">Trail Stop</span><span class="mtc-value" style="color:#d29922;">Floor +${floor}% | Cushion: ${(parseFloat(pnlPct) - floor).toFixed(0)}%</span></div>` : ''}
         <div class="mtc-actions">
           <button onclick="addContract('${t.ticker}')" style="border:1px solid #3fb950;background:#0d2818;color:#3fb950;">+ Add</button>
           <button onclick="closeTrade('${t.ticker}')" style="border:1px solid #f85149;background:#2d1215;color:#f85149;">✕ Close</button>
@@ -853,6 +861,13 @@ function getDTE(expDate) {
   const now = new Date();
   const diff = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
   return diff >= 0 ? diff : 0;
+}
+
+function getDaysHeld(t) {
+  if (!t.entry_date) return '?';
+  const entry = new Date(t.entry_date);
+  const now = new Date();
+  return Math.floor((now - entry) / (1000 * 60 * 60 * 24));
 }
 
 function getBreakeven(t) {
