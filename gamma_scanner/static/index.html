@@ -539,10 +539,22 @@ async function renderSummary(mode) {
     ? `Avg score: ${stats.avg_score}` : 'No picks today';
 
   document.getElementById('open-trades').textContent = stats.open;
-  const openPnl = stats.open_pnl;
-  const openPnlEl = document.getElementById('open-pnl-sub');
-  openPnlEl.textContent = `Unrealized: $${openPnl.toFixed(2)}`;
-  openPnlEl.style.color = openPnl >= 0 ? '#3fb950' : '#f85149';
+  // Fetch accurate unrealized P&L from Alpaca
+  try {
+    const plResp = await fetch('/api/alpaca-pnl');
+    if (plResp.ok) {
+      const plData = await plResp.json();
+      const openPnl = plData.unrealized_pl || 0;
+      const openPnlEl = document.getElementById('open-pnl-sub');
+      openPnlEl.textContent = `Unrealized: $${openPnl.toFixed(0)}`;
+      openPnlEl.style.color = openPnl >= 0 ? '#3fb950' : '#f85149';
+    }
+  } catch(e) {
+    const openPnl = stats.open_pnl;
+    const openPnlEl = document.getElementById('open-pnl-sub');
+    openPnlEl.textContent = `Unrealized: ~$${openPnl.toFixed(0)}`;
+    openPnlEl.style.color = openPnl >= 0 ? '#3fb950' : '#f85149';
+  }
 
   const pnlEl = document.getElementById('realized-pnl');
   pnlEl.textContent = `$${stats.total_pnl.toFixed(2)}`;

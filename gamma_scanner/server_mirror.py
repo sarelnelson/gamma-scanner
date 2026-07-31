@@ -242,6 +242,31 @@ def daily_move():
         return {"error": str(e)}
 
 
+@app.get("/api/alpaca-pnl")
+def alpaca_pnl():
+    """Accurate P&L directly from Alpaca."""
+    try:
+        ALPACA_HEADERS = {
+            "APCA-API-KEY-ID": os.getenv("ALPACA_API_KEY", "PKOMKRLONHFRTJIPY3OTSRQYDP"),
+            "APCA-API-SECRET-KEY": os.getenv("ALPACA_SECRET_KEY", "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4"),
+        }
+        resp = requests.get("https://paper-api.alpaca.markets/v2/positions", headers=ALPACA_HEADERS, timeout=5)
+        if resp.status_code != 200:
+            return {"error": "Can't fetch positions"}
+        positions = resp.json()
+        unrealized = sum(float(p.get("unrealized_pl", 0)) for p in positions)
+        cost_basis = sum(float(p.get("cost_basis", 0)) for p in positions)
+        market_value = sum(float(p.get("market_value", 0)) for p in positions)
+        return {
+            "unrealized_pl": round(unrealized, 2),
+            "cost_basis": round(cost_basis, 2),
+            "market_value": round(market_value, 2),
+            "positions": len(positions),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/spy-context")
 def spy_context():
     """SPY price, daily change, and 5-day trend."""

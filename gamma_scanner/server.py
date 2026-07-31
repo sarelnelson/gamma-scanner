@@ -324,6 +324,28 @@ def daily_move():
         return {"error": str(e)}
 
 
+@app.get("/api/alpaca-pnl")
+def alpaca_pnl():
+    """Accurate P&L directly from Alpaca account."""
+    try:
+        from broker_alpaca import BASE_URL, HEADERS
+        resp = requests.get(f"{BASE_URL}/v2/positions", headers=HEADERS, timeout=5)
+        if resp.status_code != 200:
+            return {"error": "Can't fetch positions"}
+        positions = resp.json()
+        unrealized = sum(float(p.get("unrealized_pl", 0)) for p in positions)
+        cost_basis = sum(float(p.get("cost_basis", 0)) for p in positions)
+        market_value = sum(float(p.get("market_value", 0)) for p in positions)
+        return {
+            "unrealized_pl": round(unrealized, 2),
+            "cost_basis": round(cost_basis, 2),
+            "market_value": round(market_value, 2),
+            "positions": len(positions),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/spy-context")
 def spy_context():
     """SPY price, daily change, and 5-day trend for market context."""
