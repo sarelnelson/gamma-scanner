@@ -320,7 +320,7 @@ def has_pending_order_for(ticker: str) -> bool:
 
 
 def buy_to_open(ticker: str, expiration: str, direction: str, strike: float,
-                max_price: float = None) -> Dict:
+                max_price: float = None, qty: int = None) -> Dict:
     """
     Full buy-to-open flow:
     1. Check for existing in-flight orders (prevent duplicates)
@@ -392,7 +392,7 @@ def buy_to_open(ticker: str, expiration: str, direction: str, strike: float,
     log(f"  Quote: bid=${quote['bid']:.2f} ask=${quote['ask']:.2f} spread={quote['spread_pct']:.1f}% | Limit: ${limit:.2f}")
     
     # Step 3: Submit order
-    order = submit_order(symbol, "buy", MIN_CONTRACTS, limit)
+    order = submit_order(symbol, "buy", qty or MIN_CONTRACTS, limit)
     if not order:
         return result
     

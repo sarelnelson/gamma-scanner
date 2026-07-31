@@ -1123,8 +1123,12 @@ def _enter_picks_for_user(picks, user_id):
         fill_price = opt["ask"] + ENTRY_SLIPPAGE
         cost_per_contract = round(fill_price * 100, 2)
         
+        # High-score picks get 2 contracts (double position size)
+        num_contracts = 2 if pick.get("score", 0) >= 80 else 1
+        total_cost = cost_per_contract * num_contracts
+        
         # Can't spend more than available — add to queue
-        if cost_per_contract > available:
+        if total_cost > available:
             from trade_queue import add_to_queue
             add_to_queue(user_id, {
                 "ticker": ticker,
@@ -1135,8 +1139,9 @@ def _enter_picks_for_user(picks, user_id):
                 "option_strike": opt["strike"],
                 "option_exp": opt["expiration"],
                 "option_cost": round(fill_price, 2),
-            })
-            log(f"  {user_id}: QUEUED {ticker} (need ${cost_per_contract:.0f}, have ${available:.0f})")
+                "num_contracts": num_contracts,
+            }, priority=(pick.get("score", 0) >= 80))
+            log(f"  {user_id}: QUEUED {ticker} {num_contracts}x (need ${total_cost:.0f}, have ${available:.0f}){' [PRIORITY]' if pick.get('score',0) >= 80 else ''}")
             continue
         
         # Live execution: actually place the order on Alpaca
@@ -1152,26 +1157,28 @@ def _enter_picks_for_user(picks, user_id):
                 _ba.API_SECRET = secret
                 _ba.HEADERS = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
             
-            result = buy_to_open(ticker, opt["expiration"], pick["direction"], opt["strike"])
+            result = buy_to_open(ticker, opt["expiration"], pick["direction"], opt["strike"], qty=num_contracts)
             if not result["success"]:
                 log(f"  {user_id}: ORDER FAILED for {ticker} — {result['status']}")
                 continue
             fill_price = result["fill_price"]
             cost_per_contract = round(fill_price * 100, 2)
-            log(f"  {user_id}: ORDER FILLED {ticker} @ ${fill_price:.2f} (order:{result['order_id']})")
+            log(f"  {user_id}: ORDER FILLED {ticker} {num_contracts}x @ ${fill_price:.2f} (order:{result['order_id']})")
             trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
             trade["order_id"] = result["order_id"]
             trade["execution"] = "live"
+            trade["num_contracts"] = num_contracts
         else:
             # Paper tracking only
             trade = _create_trade_entry(pick, opt, fill_price, cost_per_contract, today, now)
             trade["execution"] = "paper"
+            trade["num_contracts"] = num_contracts
         
         trades.append(trade)
         today_tickers.add(ticker)
-        available -= cost_per_contract
+        available -= total_cost
         entries_today += 1
-        log(f"  {user_id}: ENTERED {ticker} {pick['direction']} ${opt['strike']} (score:{pick['score']}) cost:${cost_per_contract:.0f}")
+        log(f"  {user_id}: ENTERED {ticker} {pick['direction']} ${opt['strike']} {num_contracts}x (score:{pick['score']}) cost:${total_cost:.0f}")
     
     save_user_trades(user_id, trades)
     
