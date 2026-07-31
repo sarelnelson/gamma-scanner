@@ -623,7 +623,7 @@ function renderPicks(mode) {
           <span style="margin-left:auto;font-size:18px;font-weight:700;color:${pnlColor}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)} <span style="font-size:12px;">(${pnlPct}%)</span></span>
         </div>
         <div style="font-size:12px;color:#8b949e;margin-top:8px;">
-          <div style="display:flex;justify-content:space-between;"><span>Strike $${t.option_strike} | Exp ${t.option_exp?.slice(5)} (${dte}d)</span><span style="color:#58a6ff;">Score: ${t.score || '?'}</span></div>
+          <div style="display:flex;justify-content:space-between;"><span>Strike $${t.option_strike} | Exp ${t.option_exp?.slice(5)} (${dte}d)</span><span style="color:#58a6ff;">Score: ${t.score != null ? t.score : '?'}</span></div>
           <div style="display:flex;justify-content:space-between;margin-top:3px;"><span>Entry $${t.option_cost?.toFixed(2)} → Bid $${t.current_option_bid?.toFixed(2) || '?'}</span><span>BE $${be}</span></div>
           <div style="margin-top:3px;">Stock: $${t.current_price?.toFixed(2) || t.entry_price?.toFixed(2) || '?'} ${t.stock_change_pct ? `(${t.stock_change_pct >= 0 ? '+' : ''}${t.stock_change_pct.toFixed(1)}%)` : ''}</div>
           <div style="margin-top:3px;color:#6b7280;font-size:11px;">${entryTime ? entryTime + ' ET | ' : ''}${t.setup ? t.setup.replace(/_/g,' ') : 'oversold bounce'}</div>

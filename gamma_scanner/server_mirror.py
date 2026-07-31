@@ -59,9 +59,9 @@ def positions_to_trades(user_data: dict) -> list:
         trades.append({
             "ticker": pos["ticker"],
             "direction": pos["direction"],
-            "setup": "oversold_bounce",
-            "score": 0,
-            "entry_price": pos.get("stock_price", 0),
+            "setup": pos.get("setup", "oversold_bounce"),
+            "score": pos.get("score", 0),
+            "entry_price": pos.get("entry_price") or pos.get("stock_price", 0),
             "entry_date": pos["entry_date"],
             "entry_time": pos.get("entry_time") or pos["entry_date"] + "T10:00:00",
             "option_strike": pos["strike"],
