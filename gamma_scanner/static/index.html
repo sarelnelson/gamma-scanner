@@ -576,20 +576,27 @@ async function renderSummary(mode) {
     ? `Avg score: ${stats.avg_score}` : 'No picks today';
 
   document.getElementById('open-trades').textContent = stats.open;
-  // Fetch accurate unrealized P&L from Alpaca
-  try {
-    const plResp = await fetch(`/api/alpaca-pnl?user=${currentUser}`);
-    if (plResp.ok) {
-      const plData = await plResp.json();
-      const openPnl = plData.unrealized_pl || 0;
+  // Fetch accurate unrealized P&L from Alpaca (skip for puts — shares keys with scanner)
+  if (currentUser !== 'puts') {
+    try {
+      const plResp = await fetch(`/api/alpaca-pnl?user=${currentUser}`);
+      if (plResp.ok) {
+        const plData = await plResp.json();
+        const openPnl = plData.unrealized_pl || 0;
+        const openPnlEl = document.getElementById('open-pnl-sub');
+        openPnlEl.textContent = `Unrealized: $${openPnl.toFixed(0)}`;
+        openPnlEl.style.color = openPnl >= 0 ? '#3fb950' : '#f85149';
+      }
+    } catch(e) {
+      const openPnl = stats.open_pnl;
       const openPnlEl = document.getElementById('open-pnl-sub');
-      openPnlEl.textContent = `Unrealized: $${openPnl.toFixed(0)}`;
+      openPnlEl.textContent = `Unrealized: ~$${openPnl.toFixed(0)}`;
       openPnlEl.style.color = openPnl >= 0 ? '#3fb950' : '#f85149';
     }
-  } catch(e) {
-    const openPnl = stats.open_pnl;
+  } else {
+    const openPnl = stats.open_pnl || 0;
     const openPnlEl = document.getElementById('open-pnl-sub');
-    openPnlEl.textContent = `Unrealized: ~$${openPnl.toFixed(0)}`;
+    openPnlEl.textContent = `Unrealized: $${openPnl.toFixed(0)}`;
     openPnlEl.style.color = openPnl >= 0 ? '#3fb950' : '#f85149';
   }
 
@@ -602,19 +609,24 @@ async function renderSummary(mode) {
   document.getElementById('win-rate-sub').textContent = `${stats.wins}W / ${stats.losses}L`;
   document.getElementById('open-trades').className = 'value ' + (stats.open > 0 ? 'green' : 'neutral');
 
-  // Daily P&L: fetch from Alpaca's lastday_price (accurate, no baseline bugs)
-  try {
-    const dailyResp = await fetch(`/api/daily-move?user=${currentUser}`);
-    if (dailyResp.ok) {
-      const dailyData = await dailyResp.json();
-      const dailyTotal = dailyData.total || 0;
-      const dailyEl = document.getElementById('daily-pnl');
-      dailyEl.textContent = `${dailyTotal >= 0 ? '+' : ''}$${dailyTotal.toFixed(0)}`;
-      dailyEl.className = 'value ' + (dailyTotal > 0 ? 'green' : dailyTotal < 0 ? 'red' : 'neutral');
-      document.getElementById('daily-pnl-sub').textContent = 'vs yesterday close (Alpaca)';
+  // Daily P&L: fetch from Alpaca's lastday_price (skip for puts — shares keys)
+  if (currentUser !== 'puts') {
+    try {
+      const dailyResp = await fetch(`/api/daily-move?user=${currentUser}`);
+      if (dailyResp.ok) {
+        const dailyData = await dailyResp.json();
+        const dailyTotal = dailyData.total || 0;
+        const dailyEl = document.getElementById('daily-pnl');
+        dailyEl.textContent = `${dailyTotal >= 0 ? '+' : ''}$${dailyTotal.toFixed(0)}`;
+        dailyEl.className = 'value ' + (dailyTotal > 0 ? 'green' : dailyTotal < 0 ? 'red' : 'neutral');
+        document.getElementById('daily-pnl-sub').textContent = 'vs yesterday close (Alpaca)';
+      }
+    } catch(e) {
+      document.getElementById('daily-pnl').textContent = '—';
     }
-  } catch(e) {
+  } else {
     document.getElementById('daily-pnl').textContent = '—';
+    document.getElementById('daily-pnl-sub').textContent = 'Put trades tracked from entries';
   }
 }
 
