@@ -288,7 +288,28 @@ def account_info(user: str = Query(default="sarel")):
 
 @app.post("/api/account/deposit")
 def deposit_funds(amount: float, note: str = "", user: str = Query(default="sarel")):
-    """Add funds to a user's account."""
+    """Add funds to a user's account. Validates against Alpaca's real balance."""
+    if amount <= 0:
+        return {"success": False, "error": "Amount must be positive"}
+    
+    # Validate: don't allow recording more than Alpaca actually has
+    try:
+        from user_manager import get_user_alpaca_keys, is_paper_user
+        from broker_alpaca import PAPER_BASE, LIVE_BASE
+        key, secret = get_user_alpaca_keys(user)
+        if key and not is_paper_user(user):
+            base = LIVE_BASE
+            headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+            resp = requests.get(f"{base}/v2/account", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                acct = resp.json()
+                equity = float(acct.get("equity", 0))
+                cash = float(acct.get("cash", 0))
+                if amount > cash:
+                    return {"success": False, "error": f"Alpaca only has ${cash:.2f} cash. Can't record ${amount:.2f} deposit."}
+    except:
+        pass  # If check fails, allow (don't block on network issues)
+    
     from user_manager import load_user_account, save_user_account
     account = load_user_account(user)
     account["transactions"].append({"type": "deposit", "amount": round(amount, 2), "date": datetime.utcnow().isoformat(), "note": note or f"Deposit ${amount:.2f}"})
