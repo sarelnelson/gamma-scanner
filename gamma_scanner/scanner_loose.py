@@ -1103,8 +1103,29 @@ def _enter_picks_for_user(picks, user_id):
         
         if available <= 0:
             log(f"  {user_id}: fully deployed (${deployed:.0f}/${balance:.0f}) — no new entries")
-            # Still process queue in case something freed up
             return
+        
+        # FAILSAFE: Check Alpaca's real buying power — use the lower number
+        try:
+            from user_manager import get_user_alpaca_keys, is_paper_user
+            from broker_alpaca import PAPER_BASE, LIVE_BASE
+            import requests as _req
+            key, secret = get_user_alpaca_keys(user_id)
+            if key:
+                base = PAPER_BASE if is_paper_user(user_id) else LIVE_BASE
+                headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+                resp = _req.get(f"{base}/v2/account", headers=headers, timeout=5)
+                if resp.status_code == 200:
+                    alpaca_bp = float(resp.json().get("buying_power", 0))
+                    # Use the lower of our internal tracking vs Alpaca reality
+                    if alpaca_bp < available:
+                        log(f"  {user_id}: Alpaca buying power ${alpaca_bp:.0f} < internal ${available:.0f} — using Alpaca limit")
+                        available = alpaca_bp
+                    if alpaca_bp <= 0:
+                        log(f"  {user_id}: Alpaca has $0 buying power — no trades possible")
+                        return
+        except Exception as e:
+            log(f"  {user_id}: Alpaca BP check failed ({e}) — using internal balance", "WARN")
     
     entries_today = len(today_entries)
     today_tickers = set(t["ticker"] for t in today_entries)
