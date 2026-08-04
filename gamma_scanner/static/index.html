@@ -193,19 +193,20 @@ a:hover { text-decoration: underline; }
   <div class="logo" onclick="window.location='/'">📈</div>
   <h1>🎯 <span id="user-title">Gamma Scanner</span></h1>
   <div class="nav">
-    <div id="account-tabs" style="display:flex;gap:4px;margin-right:8px;">
-      <button onclick="switchAccount('scanner')" id="tab-scanner" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">📊 Scanner</button>
-      <button onclick="switchAccount('puts')" id="tab-puts" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">🔄 Puts</button>
-      <button onclick="switchAccount('sarel')" id="tab-sarel" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">👤 Sarel</button>
-      <button onclick="switchAccount('yonah')" id="tab-yonah" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">👤 Yonah</button>
-    </div>
-    <button id="fund-btn" onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;display:none;">💳 Fund</button>
-    <button id="pause-btn" onclick="togglePause()" style="padding:6px 14px;border-radius:6px;border:1px solid #d29922;background:transparent;color:#d29922;font-size:12px;cursor:pointer;font-weight:600;">⏸ Pause</button>
-    <button onclick="manualScan()" style="padding:6px 14px;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;font-size:12px;cursor:pointer;font-weight:600;">🔍 Scan</button>
-    <button id="gate-btn" onclick="toggleGate()" style="padding:6px 14px;border-radius:6px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;">🔒</button>
-    <span style="color:#8b949e;font-size:12px;" id="last-update"></span>
+    <button id="fund-btn" onclick="openFundingModal()" style="padding:5px 10px;border-radius:5px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:11px;cursor:pointer;font-weight:600;display:none;">💳</button>
+    <button id="pause-btn" onclick="togglePause()" style="padding:5px 10px;border-radius:5px;border:1px solid #d29922;background:transparent;color:#d29922;font-size:11px;cursor:pointer;font-weight:600;">⏸</button>
+    <button onclick="manualScan()" style="padding:5px 10px;border-radius:5px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;font-size:11px;cursor:pointer;font-weight:600;">🔍</button>
+    <button id="gate-btn" onclick="toggleGate()" style="padding:5px 10px;border-radius:5px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">🔒</button>
     <span><span class="status-dot live"></span></span>
   </div>
+</div>
+<!-- Account Tabs -->
+<div id="account-tabs" style="display:flex;gap:6px;padding:10px 28px;background:#0d1117;border-bottom:1px solid #21262d;overflow-x:auto;">
+  <button onclick="switchAccount('scanner')" id="tab-scanner" style="padding:8px 14px;border-radius:8px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap;">📊 Scanner</button>
+  <button onclick="switchAccount('puts')" id="tab-puts" style="padding:8px 14px;border-radius:8px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap;">🔄 Puts</button>
+  <button onclick="switchAccount('sarel')" id="tab-sarel" style="padding:8px 14px;border-radius:8px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap;">👤 Sarel</button>
+  <button onclick="switchAccount('yonah')" id="tab-yonah" style="padding:8px 14px;border-radius:8px;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap;">👤 Yonah</button>
+  <span style="color:#8b949e;font-size:10px;margin-left:auto;align-self:center;" id="last-update"></span>
 </div>
 
 <!-- Funding Modal -->
