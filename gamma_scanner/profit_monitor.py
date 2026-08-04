@@ -306,6 +306,7 @@ def check_positions_for_trades(trades, user_id=""):
                 trade["status"] = "expired"
                 trade["exit_reason"] = "EXPIRED"
                 trade["exit_date"] = today.isoformat()
+                trade["exit_time"] = datetime.utcnow().isoformat()
                 trade["pnl"] = pnl_dollars
                 trade["pnl_pct"] = round(pnl_per_share / entry_cost * 100, 1) if entry_cost > 0 else 0
                 log(f"  EXPIRED: {ticker} {direction} ${strike} | Intrinsic: ${intrinsic if stock_price else '?'} | P&L: ${pnl_dollars}")
@@ -324,8 +325,53 @@ def check_positions_for_trades(trades, user_id=""):
                 modified = True
                 continue
             
-            # Expiring today — check more frequently but same logic applies
-            # (broker would auto-exercise if ITM by $0.01+)
+            # === EXPIRATION DAY AUTO-SELL ===
+            # On expiration day, sell to capture remaining value instead of
+            # letting it expire/auto-exercise. Sell after 2PM ET (18:00 UTC)
+            # to give the position maximum time to move, but before close.
+            if today == exp_date and datetime.utcnow().hour >= 18:
+                if not trade.get("expiry_sell_attempted"):
+                    trade["expiry_sell_attempted"] = True
+                    log(f"  ⏰ EXPIRY SELL: {ticker} {direction} ${strike} — expiring today, selling to capture value")
+                    
+                    import os as _os
+                    if _os.environ.get("LIVE_EXECUTION") == "true":
+                        try:
+                            from broker_alpaca import sell_to_close, build_occ_symbol
+                            contract_symbol = trade.get("alpaca_symbol") or build_occ_symbol(ticker, expiration, direction, strike)
+                            qty = trade.get("num_contracts", 1)
+                            result = sell_to_close(contract_symbol, qty=qty)
+                            if result["success"]:
+                                exit_value = result["fill_price"]
+                                pnl_per_share = exit_value - entry_cost
+                                pnl_dollars = round(pnl_per_share * qty * 100, 2)
+                                trade["status"] = "closed"
+                                trade["exit_reason"] = f"EXPIRY SELL (day of expiration)"
+                                trade["exit_date"] = today.isoformat()
+                                trade["exit_time"] = datetime.utcnow().isoformat()
+                                trade["exit_option_bid"] = exit_value
+                                trade["exit_fill_price"] = exit_value
+                                trade["pnl"] = pnl_dollars
+                                trade["pnl_pct"] = round(pnl_per_share / entry_cost * 100, 1) if entry_cost > 0 else 0
+                                trade["high_water_pct"] = trade.get("high_water_pct", 0)
+                                log(f"  ✅ EXPIRY SELL FILLED: {ticker} @ ${exit_value:.2f} | P&L: ${pnl_dollars:+.2f}")
+                                notify(
+                                    f"⏰ EXPIRY SELL {ticker} {'+' if pnl_dollars > 0 else ''}{trade['pnl_pct']:.0f}%",
+                                    f"{direction} ${strike} | Entry ${entry_cost:.2f} → Exit ${exit_value:.2f}\nP&L: ${pnl_dollars:+.2f}\nSold before expiration to capture remaining value",
+                                    priority="default",
+                                    tags="hourglass,moneybag" if pnl_dollars > 0 else "hourglass"
+                                )
+                                try:
+                                    from position_history import record_close
+                                    record_close(trade)
+                                except:
+                                    pass
+                                modified = True
+                                continue
+                            else:
+                                log(f"  ⚠️ EXPIRY SELL FAILED: {ticker} — {result['status']}", "WARN")
+                        except Exception as e:
+                            log(f"  ⚠️ EXPIRY SELL ERROR: {ticker} — {e}", "ERROR")
             
         except ValueError:
             log(f"  Invalid expiration date format for {ticker}: {expiration}", "WARN")
