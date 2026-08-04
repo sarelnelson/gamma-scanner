@@ -13,15 +13,42 @@ from broker_alpaca import get_option_quote, build_occ_symbol, get_account, PAPER
 
 app = FastAPI(title="Gamma Scanner", version="2.0")
 
-# Security middleware
+# Security middleware — lightweight IP check
 from security import (
-    IPAllowlistMiddleware, TokenAuthMiddleware,
     verify_password, create_token, add_ip, is_gate_open,
-    open_gate, close_gate, get_all_ips, remove_ip, PASSWORD
+    open_gate, close_gate, get_all_ips, remove_ip, is_ip_allowed, ensure_security_dir
 )
-app.add_middleware(IPAllowlistMiddleware)
-# Note: TokenAuthMiddleware disabled for now — IP allowlist is the primary guard
-# app.add_middleware(TokenAuthMiddleware)
+
+ensure_security_dir()
+
+@app.middleware("http")
+async def ip_allowlist_check(request: Request, call_next):
+    """Lightweight IP check — blocks non-allowlisted IPs."""
+    # Get client IP
+    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    if not ip:
+        ip = request.headers.get("X-Real-IP", "")
+    if not ip:
+        ip = request.client.host if request.client else "unknown"
+    request.state.client_ip = ip
+    
+    # Always allow health check
+    path = request.url.path
+    if path == "/api/health":
+        return await call_next(request)
+    
+    # If IP is allowed, pass through
+    if is_ip_allowed(ip):
+        return await call_next(request)
+    
+    # If gate is open, allow login page and login endpoint
+    if is_gate_open():
+        if path in ("/", "/dashboard") or path.startswith("/api/auth") or path.startswith("/static"):
+            return await call_next(request)
+    
+    # Blocked
+    from starlette.responses import JSONResponse
+    return JSONResponse(status_code=403, content={"error": "Access denied"})
 
 # Config
 from config import SCANNER_DIR, DATA_DIR, ALPACA_API_KEY, ALPACA_SECRET_KEY
