@@ -576,7 +576,7 @@ async function renderSummary(mode) {
   document.getElementById('open-trades').textContent = stats.open;
   // Fetch accurate unrealized P&L from Alpaca
   try {
-    const plResp = await fetch('/api/alpaca-pnl');
+    const plResp = await fetch(`/api/alpaca-pnl?user=${currentUser}`);
     if (plResp.ok) {
       const plData = await plResp.json();
       const openPnl = plData.unrealized_pl || 0;
@@ -602,7 +602,7 @@ async function renderSummary(mode) {
 
   // Daily P&L: fetch from Alpaca's lastday_price (accurate, no baseline bugs)
   try {
-    const dailyResp = await fetch('/api/daily-move');
+    const dailyResp = await fetch(`/api/daily-move?user=${currentUser}`);
     if (dailyResp.ok) {
       const dailyData = await dailyResp.json();
       const dailyTotal = dailyData.total || 0;

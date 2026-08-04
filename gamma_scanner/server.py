@@ -331,11 +331,17 @@ def health():
 
 
 @app.get("/api/daily-move")
-def daily_move():
+def daily_move(user: str = Query(default="scanner")):
     """Today's P&L move calculated from Alpaca's lastday_price (yesterday's close)."""
     try:
-        from broker_alpaca import BASE_URL, HEADERS
-        resp = requests.get(f"{BASE_URL}/v2/positions", headers=HEADERS, timeout=5)
+        from user_manager import get_user_alpaca_keys, is_paper_user
+        from broker_alpaca import PAPER_BASE, LIVE_BASE
+        key, secret = get_user_alpaca_keys(user)
+        if not key:
+            return {"total": 0, "details": [], "message": "No Alpaca keys configured"}
+        headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+        base = PAPER_BASE if is_paper_user(user) else LIVE_BASE
+        resp = requests.get(f"{base}/v2/positions", headers=headers, timeout=5)
         if resp.status_code != 200:
             return {"error": "Can't fetch positions"}
         positions = resp.json()
@@ -354,11 +360,17 @@ def daily_move():
 
 
 @app.get("/api/alpaca-pnl")
-def alpaca_pnl():
+def alpaca_pnl(user: str = Query(default="scanner")):
     """Accurate P&L directly from Alpaca account."""
     try:
-        from broker_alpaca import BASE_URL, HEADERS
-        resp = requests.get(f"{BASE_URL}/v2/positions", headers=HEADERS, timeout=5)
+        from user_manager import get_user_alpaca_keys, is_paper_user
+        from broker_alpaca import PAPER_BASE, LIVE_BASE
+        key, secret = get_user_alpaca_keys(user)
+        if not key:
+            return {"unrealized_pl": 0, "cost_basis": 0, "market_value": 0, "positions": 0, "message": "No Alpaca keys"}
+        headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+        base = PAPER_BASE if is_paper_user(user) else LIVE_BASE
+        resp = requests.get(f"{base}/v2/positions", headers=headers, timeout=5)
         if resp.status_code != 200:
             return {"error": "Can't fetch positions"}
         positions = resp.json()
