@@ -201,6 +201,7 @@ a:hover { text-decoration: underline; }
     <button id="fund-btn" onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;display:none;">💳 Fund</button>
     <button id="pause-btn" onclick="togglePause()" style="padding:6px 14px;border-radius:6px;border:1px solid #d29922;background:transparent;color:#d29922;font-size:12px;cursor:pointer;font-weight:600;">⏸ Pause</button>
     <button onclick="manualScan()" style="padding:6px 14px;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;font-size:12px;cursor:pointer;font-weight:600;">🔍 Scan</button>
+    <button id="gate-btn" onclick="toggleGate()" style="padding:6px 14px;border-radius:6px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;">🔒</button>
     <span style="color:#8b949e;font-size:12px;" id="last-update"></span>
     <span><span class="status-dot live"></span></span>
   </div>
@@ -978,6 +979,41 @@ async function fetchMarketContext() {
 
 // Pause/Unpause
 let systemPaused = false;
+
+// Gate (IP allowlist) management
+async function checkGateStatus() {
+  try {
+    const resp = await fetch('/api/admin/gate-status');
+    const data = await resp.json();
+    const btn = document.getElementById('gate-btn');
+    if (data.gate_open) {
+      btn.textContent = '🔓 Open';
+      btn.style.borderColor = '#f85149';
+      btn.style.color = '#f85149';
+    } else {
+      btn.textContent = '🔒';
+      btn.style.borderColor = '#3fb950';
+      btn.style.color = '#3fb950';
+    }
+  } catch(e) {}
+}
+
+async function toggleGate() {
+  const resp = await fetch('/api/admin/gate-status');
+  const data = await resp.json();
+  const isOpen = data.gate_open;
+  
+  if (isOpen) {
+    if (!confirm('Close the gate? Only currently greenlisted IPs will have access.')) return;
+    await fetch('/api/admin/close-gate', {method: 'POST'});
+  } else {
+    if (!confirm('Open the gate? Anyone who logs in will be permanently greenlisted.')) return;
+    await fetch('/api/admin/open-gate', {method: 'POST'});
+  }
+  checkGateStatus();
+}
+
+checkGateStatus();
 
 async function checkPauseStatus() {
   try {
