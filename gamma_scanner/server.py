@@ -4,7 +4,7 @@ Multi-user support: each user has their own Alpaca account, positions, and P&L.
 """
 import os, sys, json, time, requests, hashlib, secrets
 from datetime import datetime
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -12,6 +12,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from broker_alpaca import get_option_quote, build_occ_symbol, get_account, PAPER_MODE, HEADERS as ALPACA_HEADERS, sell_to_close, find_contract, buy_to_open
 
 app = FastAPI(title="Gamma Scanner", version="2.0")
+
+# Security middleware
+from security import (
+    IPAllowlistMiddleware, TokenAuthMiddleware,
+    verify_password, create_token, add_ip, is_gate_open,
+    open_gate, close_gate, get_all_ips, remove_ip, PASSWORD
+)
+app.add_middleware(IPAllowlistMiddleware)
+# Note: TokenAuthMiddleware disabled for now — IP allowlist is the primary guard
+# app.add_middleware(TokenAuthMiddleware)
 
 # Config
 from config import SCANNER_DIR, DATA_DIR, ALPACA_API_KEY, ALPACA_SECRET_KEY
@@ -64,15 +74,57 @@ def save_user_json(user_id, filename, data):
 # === AUTH ENDPOINTS ===
 
 @app.post("/api/auth/login")
-def login(body: dict):
-    """Verify password and return token + user list."""
-    users_config = load_users()
-    if body.get("password") == users_config.get("password"):
-        token = secrets.token_hex(16)
-        _active_tokens.add(token)
-        user_list = [{"id": uid, "name": u["name"]} for uid, u in users_config.get("users", {}).items()]
-        return {"success": True, "token": token, "users": user_list}
+def login(body: dict, request: Request):
+    """Verify password, greenlist IP if gate is open, return token."""
+    # Get client IP
+    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    if not ip:
+        ip = request.headers.get("X-Real-IP", "")
+    if not ip:
+        ip = request.client.host if request.client else "unknown"
+    
+    if verify_password(body.get("password", "")):
+        token = create_token(ip)
+        
+        # If gate is open, greenlist this IP
+        if is_gate_open():
+            add_ip(ip, note=f"Added via login at {datetime.utcnow().isoformat()}")
+        
+        user_list = [{"id": uid, "name": u["name"]} for uid, u in load_users().get("users", {}).items()]
+        return {"success": True, "token": token, "users": user_list, "ip_greenlisted": is_gate_open()}
     return {"success": False}
+
+
+# === SECURITY ADMIN ===
+
+@app.post("/api/admin/open-gate")
+def admin_open_gate():
+    """Open the gate — new logins will be greenlisted."""
+    open_gate()
+    return {"success": True, "message": "Gate is OPEN. New logins will be greenlisted."}
+
+
+@app.post("/api/admin/close-gate")
+def admin_close_gate():
+    """Close the gate — only existing IPs can access."""
+    close_gate()
+    return {"success": True, "message": "Gate is CLOSED. Only greenlisted IPs can access."}
+
+
+@app.get("/api/admin/gate-status")
+def admin_gate_status():
+    """Check gate status and list allowed IPs."""
+    return {
+        "gate_open": is_gate_open(),
+        "allowed_ips": get_all_ips(),
+    }
+
+
+@app.post("/api/admin/remove-ip")
+def admin_remove_ip(ip: str = Query(...)):
+    """Remove an IP from the allowlist."""
+    remove_ip(ip)
+    return {"success": True, "removed": ip}
 
 
 @app.post("/api/auth/logout")
