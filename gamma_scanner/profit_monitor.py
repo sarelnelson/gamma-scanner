@@ -221,7 +221,18 @@ def check_all_users():
     
     for user_id in users:
         try:
-            from user_manager import load_user_trades, save_user_trades
+            from user_manager import load_user_trades, save_user_trades, get_user_alpaca_keys, is_paper_user
+            
+            # Set broker keys/URL for this user
+            key, secret = get_user_alpaca_keys(user_id)
+            if key:
+                import broker_alpaca as _ba
+                _ba.API_KEY = key
+                _ba.API_SECRET = secret
+                _ba.HEADERS = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+                _ba.HEADERS_JSON = {**_ba.HEADERS, "Content-Type": "application/json"}
+                _ba.BASE_URL = _ba.PAPER_BASE if is_paper_user(user_id) else _ba.LIVE_BASE
+            
             trades = load_user_trades(user_id)
             if not trades:
                 continue

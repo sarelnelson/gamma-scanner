@@ -193,11 +193,14 @@ a:hover { text-decoration: underline; }
   <div class="logo" onclick="window.location='/'">📈</div>
   <h1>🎯 <span id="user-title">Gamma Scanner</span></h1>
   <div class="nav">
-    <button onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;">💳 Fund</button>
+    <div id="account-tabs" style="display:flex;gap:4px;margin-right:8px;">
+      <button onclick="switchAccount('scanner')" id="tab-scanner" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">📊 Scanner</button>
+      <button onclick="switchAccount('sarel')" id="tab-sarel" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">👤 Sarel</button>
+      <button onclick="switchAccount('yonah')" id="tab-yonah" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">👤 Yonah</button>
+    </div>
+    <button id="fund-btn" onclick="openFundingModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #3fb950;background:transparent;color:#3fb950;font-size:12px;cursor:pointer;font-weight:600;display:none;">💳 Fund</button>
     <button id="pause-btn" onclick="togglePause()" style="padding:6px 14px;border-radius:6px;border:1px solid #d29922;background:transparent;color:#d29922;font-size:12px;cursor:pointer;font-weight:600;">⏸ Pause</button>
     <button onclick="manualScan()" style="padding:6px 14px;border-radius:6px;border:1px solid #58a6ff;background:transparent;color:#58a6ff;font-size:12px;cursor:pointer;font-weight:600;">🔍 Scan</button>
-    <button onclick="syncAlpaca()" style="padding:6px 14px;border-radius:6px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:12px;cursor:pointer;font-weight:600;">⟳ Sync</button>
-    <button onclick="switchUser()" style="padding:6px 14px;border-radius:6px;border:1px solid #8b949e;background:transparent;color:#8b949e;font-size:12px;cursor:pointer;">↺</button>
     <span style="color:#8b949e;font-size:12px;" id="last-update"></span>
     <span><span class="status-dot live"></span></span>
   </div>
@@ -362,12 +365,44 @@ let perfData = null;
 let picksData = null;
 
 // User context
-const currentUser = localStorage.getItem('gamma_user') || 'sarel';
-const userName = currentUser.charAt(0).toUpperCase() + currentUser.slice(1);
-document.getElementById('user-title').textContent = userName + "'s Scanner";
+let currentUser = localStorage.getItem('gamma_user') || 'scanner';
+updateAccountUI();
+
+function switchAccount(userId) {
+  currentUser = userId;
+  localStorage.setItem('gamma_user', userId);
+  updateAccountUI();
+  fetchData();
+}
+
+function updateAccountUI() {
+  // Update tab highlight
+  document.querySelectorAll('#account-tabs button').forEach(btn => {
+    btn.style.background = '#0d1117';
+    btn.style.color = '#8b949e';
+    btn.style.borderColor = '#30363d';
+  });
+  const activeTab = document.getElementById('tab-' + currentUser);
+  if (activeTab) {
+    activeTab.style.background = '#1f6feb';
+    activeTab.style.color = '#fff';
+    activeTab.style.borderColor = '#1f6feb';
+  }
+  
+  // Update title
+  const names = {scanner: 'Scanner (Paper)', sarel: "Sarel's Account", yonah: "Yonah's Account"};
+  document.getElementById('user-title').textContent = names[currentUser] || currentUser;
+  
+  // Show/hide fund button (only on real accounts, not scanner)
+  const fundBtn = document.getElementById('fund-btn');
+  if (fundBtn) {
+    fundBtn.style.display = (currentUser !== 'scanner') ? 'inline-block' : 'none';
+  }
+}
 
 function switchUser() {
   localStorage.removeItem('gamma_user');
+  localStorage.removeItem('gamma_token');
   window.location.href = '/';
 }
 

@@ -119,3 +119,10 @@ def get_user_alpaca_keys(user_id):
     config = load_users_config()
     user = config.get("users", {}).get(user_id, {})
     return user.get("alpaca_key", ""), user.get("alpaca_secret", "")
+
+
+def is_paper_user(user_id):
+    """Check if user is paper trading (vs live)."""
+    config = load_users_config()
+    user = config.get("users", {}).get(user_id, {})
+    return user.get("paper", True)  # default to paper if not specified

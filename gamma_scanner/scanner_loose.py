@@ -1147,15 +1147,17 @@ def _enter_picks_for_user(picks, user_id):
         # Live execution: actually place the order on Alpaca
         import os
         if os.environ.get("LIVE_EXECUTION") == "true":
-            from broker_alpaca import buy_to_open
-            from user_manager import get_user_alpaca_keys
+            from broker_alpaca import buy_to_open, PAPER_BASE, LIVE_BASE
+            from user_manager import get_user_alpaca_keys, is_paper_user
             key, secret = get_user_alpaca_keys(user_id)
-            # Override keys if user has their own
+            # Override keys and base URL for this user
             if key:
                 import broker_alpaca as _ba
                 _ba.API_KEY = key
                 _ba.API_SECRET = secret
                 _ba.HEADERS = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+                _ba.HEADERS_JSON = {**_ba.HEADERS, "Content-Type": "application/json"}
+                _ba.BASE_URL = PAPER_BASE if is_paper_user(user_id) else LIVE_BASE
             
             result = buy_to_open(ticker, opt["expiration"], pick["direction"], opt["strike"], qty=num_contracts)
             if not result["success"]:

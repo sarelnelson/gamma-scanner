@@ -1,17 +1,29 @@
 {
   "password": "gamma2026",
   "users": {
-    "sarel": {
-      "name": "Sarel",
+    "scanner": {
+      "name": "Scanner (Paper)",
       "alpaca_key": "PKOMKRLONHFRTJIPY3OTSRQYDP",
       "alpaca_secret": "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4",
-      "starting_balance": 5000
+      "paper": true,
+      "starting_balance": 0,
+      "auto_scan": true
+    },
+    "sarel": {
+      "name": "Sarel",
+      "alpaca_key": "AKI6XN2HWORBLQJX2APYTG3B56",
+      "alpaca_secret": "DuCon5befND1KfpqUxTnTBRPZZ3FKksPSVzeoVs3aeiP",
+      "paper": false,
+      "starting_balance": 0,
+      "auto_scan": true
     },
     "yonah": {
       "name": "Yonah",
       "alpaca_key": "",
       "alpaca_secret": "",
-      "starting_balance": 5000
+      "paper": false,
+      "starting_balance": 0,
+      "auto_scan": true
     }
   }
 }

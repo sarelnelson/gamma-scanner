@@ -54,19 +54,9 @@ async function checkPassword() {
   });
   const data = await resp.json();
   if (data.success) {
-    // Store token
     localStorage.setItem('gamma_token', data.token);
-    // Show user selection
-    document.getElementById('password-step').style.display = 'none';
-    const sel = document.getElementById('user-select');
-    sel.style.display = 'block';
-    sel.innerHTML = '<p style="color:#8b949e;font-size:13px;margin-bottom:16px;">Select account:</p>' +
-      data.users.map(u => `
-        <button class="user-btn" onclick="selectUser('${u.id}')">
-          <span class="avatar">${u.name[0]}</span>
-          <span>${u.name}</span>
-        </button>
-      `).join('');
+    localStorage.setItem('gamma_user', 'scanner');
+    window.location.href = '/dashboard';
   } else {
     document.getElementById('error').style.display = 'block';
   }
@@ -77,10 +67,9 @@ function selectUser(userId) {
   window.location.href = '/dashboard';
 }
 
-// If already logged in, skip to user select or dashboard
+// If already logged in, go to dashboard
 const token = localStorage.getItem('gamma_token');
-const user = localStorage.getItem('gamma_user');
-if (token && user) {
+if (token) {
   window.location.href = '/dashboard';
 }
 </script>
