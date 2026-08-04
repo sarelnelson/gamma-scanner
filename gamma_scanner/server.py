@@ -13,27 +13,30 @@ from broker_alpaca import get_option_quote, build_occ_symbol, get_account, PAPER
 
 app = FastAPI(title="Gamma Scanner", version="2.0")
 
-# Security middleware — DISABLED pending fix
-# from security import (
-#     verify_password, create_token, add_ip, is_gate_open,
-#     open_gate, close_gate, get_all_ips, remove_ip, is_ip_allowed, ensure_security_dir
-# )
-# ensure_security_dir()
+# Security — IP allowlist
+from security import get_client_ip, is_allowed, add_ip, is_gate_open, set_gate, get_all_ips, remove_ip
 
-# @app.middleware("http")
-# async def ip_allowlist_check(request: Request, call_next):
-#     ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-#     if not ip: ip = request.headers.get("X-Real-IP", "")
-#     if not ip: ip = request.client.host if request.client else "unknown"
-#     request.state.client_ip = ip
-#     path = request.url.path
-#     if path == "/api/health": return await call_next(request)
-#     if is_ip_allowed(ip): return await call_next(request)
-#     if is_gate_open():
-#         if path in ("/", "/dashboard") or path.startswith("/api/auth") or path.startswith("/static"):
-#             return await call_next(request)
-#     from starlette.responses import JSONResponse
-#     return JSONResponse(status_code=403, content={"error": "Access denied"})
+@app.middleware("http")
+async def check_ip(request: Request, call_next):
+    ip = get_client_ip(request)
+    path = request.url.path
+    
+    # Always allow: health check, static files
+    if path == "/api/health" or path.startswith("/static"):
+        return await call_next(request)
+    
+    # If IP is allowed, pass through
+    if is_allowed(ip):
+        return await call_next(request)
+    
+    # If gate is open, allow login page and auth endpoint
+    if is_gate_open():
+        if path in ("/", "/dashboard") or path.startswith("/api/auth"):
+            return await call_next(request)
+    
+    # Blocked
+    from starlette.responses import PlainTextResponse
+    return PlainTextResponse("Access denied", status_code=403)
 
 # Config
 from config import SCANNER_DIR, DATA_DIR, ALPACA_API_KEY, ALPACA_SECRET_KEY
@@ -87,21 +90,42 @@ def save_user_json(user_id, filename, data):
 
 @app.post("/api/auth/login")
 def login(body: dict, request: Request):
-    """Verify password and return token."""
+    """Verify password and return token. Greenlists IP if gate is open."""
     users_config = load_users()
     if body.get("password") == users_config.get("password"):
         token = secrets.token_hex(16)
         _active_tokens.add(token)
+        
+        # Greenlist this IP if gate is open
+        ip = get_client_ip(request)
+        if is_gate_open():
+            add_ip(ip, note=f"Login {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}")
+        
         user_list = [{"id": uid, "name": u["name"]} for uid, u in users_config.get("users", {}).items()]
-        return {"success": True, "token": token, "users": user_list}
+        return {"success": True, "token": token, "users": user_list, "ip_greenlisted": is_gate_open(), "your_ip": ip}
     return {"success": False}
 
 
-# === SECURITY ADMIN (disabled pending fix) ===
-# @app.post("/api/admin/open-gate")
-# @app.post("/api/admin/close-gate")
-# @app.get("/api/admin/gate-status")
-# @app.post("/api/admin/remove-ip")
+# === SECURITY ADMIN ===
+
+@app.post("/api/admin/open-gate")
+def admin_open_gate():
+    set_gate(True)
+    return {"success": True, "message": "Gate OPEN — new logins will be greenlisted"}
+
+@app.post("/api/admin/close-gate")
+def admin_close_gate():
+    set_gate(False)
+    return {"success": True, "message": "Gate CLOSED — only greenlisted IPs can access"}
+
+@app.get("/api/admin/gate-status")
+def admin_gate_status():
+    return {"gate_open": is_gate_open(), "allowed_ips": get_all_ips()}
+
+@app.post("/api/admin/remove-ip")
+def admin_remove_ip(ip: str = Query(...)):
+    remove_ip(ip)
+    return {"success": True, "removed": ip}
 
 
 @app.post("/api/auth/logout")
