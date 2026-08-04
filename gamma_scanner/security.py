@@ -59,10 +59,11 @@ TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60
 
 def ensure_security_dir():
     os.makedirs(SECURITY_DIR, exist_ok=True)
-    # First run: gate starts open so admin can log in
+    # First run: create allowlist and open gate
     if not os.path.exists(ALLOWLIST_FILE):
-        save_allowlist({"ips": {}, "created": datetime.utcnow().isoformat()})
-        open_gate()  # Start with gate open on first deploy
+        with open(ALLOWLIST_FILE, "w") as f:
+            json.dump({"ips": {}, "created": datetime.utcnow().isoformat()}, f, indent=2)
+        open_gate()
 
 
 # === ALLOWLIST ===
@@ -77,7 +78,7 @@ def load_allowlist() -> dict:
 
 
 def save_allowlist(data: dict):
-    ensure_security_dir()
+    os.makedirs(SECURITY_DIR, exist_ok=True)
     with open(ALLOWLIST_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
