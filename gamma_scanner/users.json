@@ -9,6 +9,14 @@
       "starting_balance": 0,
       "auto_scan": true
     },
+    "puts": {
+      "name": "Puts (Paper)",
+      "alpaca_key": "PKOMKRLONHFRTJIPY3OTSRQYDP",
+      "alpaca_secret": "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4",
+      "paper": true,
+      "starting_balance": 0,
+      "auto_scan": false
+    },
     "sarel": {
       "name": "Sarel",
       "alpaca_key": "AKI6XN2HWORBLQJX2APYTG3B56",

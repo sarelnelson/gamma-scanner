@@ -220,6 +220,8 @@ def check_all_users():
         users = ["sarel"]  # fallback
     
     for user_id in users:
+        if user_id == "puts":
+            continue  # Puts have their own exit logic in check_put_exits()
         try:
             from user_manager import load_user_trades, save_user_trades, get_user_alpaca_keys, is_paper_user
             
@@ -544,6 +546,13 @@ def check_positions_for_trades(trades, user_id=""):
                 record_close(trade)
             except:
                 pass
+            # Trigger reversal put if qualifying
+            try:
+                from reversal_puts import should_enter_put, enter_reversal_put
+                if should_enter_put(trade):
+                    enter_reversal_put(trade, log_fn=log)
+            except Exception as e:
+                log(f"  Reversal put error: {e}")
         else:
             # Just log status
             floor_str = f" [floor:+{current_floor}%]" if current_floor else ""
@@ -681,6 +690,13 @@ def run_monitor():
             # Check positions every cycle (always runs, even if paused)
             check_all_users()
             consecutive_errors = 0
+            
+            # Check reversal put exits
+            try:
+                from reversal_puts import check_put_exits
+                check_put_exits(log_fn=log)
+            except:
+                pass
             
             # Publish briefing for AI assistant (every cycle)
             try:

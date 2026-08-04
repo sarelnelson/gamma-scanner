@@ -195,6 +195,7 @@ a:hover { text-decoration: underline; }
   <div class="nav">
     <div id="account-tabs" style="display:flex;gap:4px;margin-right:8px;">
       <button onclick="switchAccount('scanner')" id="tab-scanner" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">📊 Scanner</button>
+      <button onclick="switchAccount('puts')" id="tab-puts" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">🔄 Puts</button>
       <button onclick="switchAccount('sarel')" id="tab-sarel" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">👤 Sarel</button>
       <button onclick="switchAccount('yonah')" id="tab-yonah" style="padding:5px 10px;border-radius:5px;border:1px solid #30363d;background:#0d1117;color:#8b949e;font-size:11px;cursor:pointer;font-weight:600;">👤 Yonah</button>
     </div>
@@ -391,7 +392,7 @@ function updateAccountUI() {
   }
   
   // Update title
-  const names = {scanner: 'Scanner (Paper)', sarel: "Sarel's Account", yonah: "Yonah's Account"};
+  const names = {scanner: 'Scanner (Paper)', puts: 'Reversal Puts (Paper)', sarel: "Sarel's Account", yonah: "Yonah's Account"};
   document.getElementById('user-title').textContent = names[currentUser] || currentUser;
   
   // Show/hide fund button (only on real accounts, not scanner)
