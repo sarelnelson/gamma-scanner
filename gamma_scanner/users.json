@@ -19,8 +19,8 @@
     },
     "yonah": {
       "name": "Yonah",
-      "alpaca_key": "",
-      "alpaca_secret": "",
+      "alpaca_key": "PKDKKOJESPTI4QT5S2KT6E2GOS",
+      "alpaca_secret": "7TTR22hARTHctdjm623CKzw3bf1JobtotMJP83YNdKWB",
       "paper": false,
       "starting_balance": 0,
       "auto_scan": true
