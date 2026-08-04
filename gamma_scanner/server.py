@@ -21,8 +21,8 @@ async def check_ip(request: Request, call_next):
     ip = get_client_ip(request)
     path = request.url.path
     
-    # Always allow: health check, static files
-    if path == "/api/health" or path.startswith("/static"):
+    # Always allow: localhost, health check, static files
+    if ip in ("127.0.0.1", "localhost", "::1") or path == "/api/health" or path.startswith("/static"):
         return await call_next(request)
     
     # If IP is allowed, pass through
