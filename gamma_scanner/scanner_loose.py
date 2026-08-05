@@ -1058,6 +1058,9 @@ def run_scan():
     from user_manager import get_active_users, is_user_paused, load_user_trades, save_user_trades, get_user_balance, get_user_deployed
     
     for user_id in get_active_users():
+        # Puts user only gets trades from reversal_puts module, not the scanner
+        if user_id == "puts":
+            continue
         if is_user_paused(user_id):
             log(f"  {user_id}: PAUSED — skipping entries")
             continue
