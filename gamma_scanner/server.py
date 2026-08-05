@@ -16,28 +16,9 @@ app = FastAPI(title="Gamma Scanner", version="2.0")
 # Security — IP allowlist
 from starlette.responses import PlainTextResponse, Response
 
+# Auth: password login only (no middleware blocking). Cookie set for convenience but not enforced.
 AUTH_COOKIE_NAME = "gamma_session"
-AUTH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60  # 30 days
-
-@app.middleware("http")
-async def check_auth(request: Request, call_next):
-    path = request.url.path
-    
-    # Always allow: health check, static files, login page, login endpoint, dashboard
-    if path == "/api/health" or path.startswith("/static") or path in ("/", "/dashboard", "/favicon.ico") or path.startswith("/api/auth"):
-        return await call_next(request)
-    
-    # Check for valid session cookie
-    session = request.cookies.get(AUTH_COOKIE_NAME)
-    if session == "authenticated":
-        return await call_next(request)
-    
-    # No cookie — redirect to login or block API
-    if path.startswith("/api/"):
-        return PlainTextResponse("Unauthorized", status_code=401)
-    else:
-        from starlette.responses import RedirectResponse
-        return RedirectResponse("/")
+AUTH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60
 
 # Config
 from config import SCANNER_DIR, DATA_DIR, ALPACA_API_KEY, ALPACA_SECRET_KEY
