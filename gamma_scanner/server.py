@@ -6,6 +6,7 @@ import os, sys, json, time, requests, hashlib, secrets
 from datetime import datetime
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -979,3 +980,7 @@ def sync_from_alpaca(user: str = Query(default="sarel")):
         }
     except Exception as e:
         return {"error": str(e), "success": False}
+
+
+# Static files (must be last — catches all unmatched paths)
+app.mount("/static", StaticFiles(directory=os.path.join(SCANNER_DIR, "static")), name="static")
