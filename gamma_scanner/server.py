@@ -23,8 +23,8 @@ AUTH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60  # 30 days
 async def check_auth(request: Request, call_next):
     path = request.url.path
     
-    # Always allow: health check, static files, login page, login endpoint
-    if path == "/api/health" or path.startswith("/static") or path in ("/", "/favicon.ico") or path.startswith("/api/auth"):
+    # Always allow: health check, static files, login page, login endpoint, dashboard
+    if path == "/api/health" or path.startswith("/static") or path in ("/", "/dashboard", "/favicon.ico") or path.startswith("/api/auth"):
         return await call_next(request)
     
     # Check for valid session cookie
