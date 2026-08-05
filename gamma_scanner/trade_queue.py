@@ -78,7 +78,7 @@ def process_queue_on_freed_capital(user_id):
         return None
     
     # Try to fill from top of queue
-    from data_alpaca import get_option_quote
+    from broker_alpaca import get_option_quote
     from broker_alpaca import build_occ_symbol
     
     for i, item in enumerate(queue):
@@ -162,7 +162,7 @@ def process_queue_on_scan(user_id):
     entered = []
     new_queue = []
     
-    from data_alpaca import get_option_quote
+    from broker_alpaca import get_option_quote
     from broker_alpaca import build_occ_symbol
     
     for item in queue:

@@ -801,7 +801,7 @@ def buy_from_queue(ticker: str, user: str = Query(default="sarel")):
     ticker = ticker.upper()
     from trade_queue import load_queue, save_queue
     from user_manager import load_user_trades, save_user_trades, get_user_balance, get_user_deployed
-    from data_alpaca import get_option_quote
+    from broker_alpaca import get_option_quote
     from broker_alpaca import build_occ_symbol
     
     queue = load_queue(user)
