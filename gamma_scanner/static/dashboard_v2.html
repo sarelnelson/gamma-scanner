@@ -48,12 +48,6 @@ body {
   background: url('/static/chameleon_bg.png') center center/cover no-repeat;
   background-color: #f2f7f5;
 }
-@media (max-width: 600px) {
-  .bg-chameleon {
-    background-position: 55% center;
-    opacity: 0.4;
-  }
-}
 
 /* Content layer */
 .content {
@@ -112,24 +106,12 @@ body {
 .menu-btn span { display:block; width:16px; height:1.5px; background:#4a5e53; border-radius:1px; }
 
 @media (max-width: 600px) {
-  .nav-left, .nav-right { display: none !important; }
-  .header { 
-    padding: 14px 16px; 
-    display: grid;
-    grid-template-columns: 40px 1fr 40px;
-    align-items: center;
-  }
-  .wordmark { 
-    height: 44px; 
-    grid-column: 2;
-    justify-self: center;
-  }
-  .menu-btn { 
-    display: flex !important; 
-    margin-left: 0;
-    grid-column: 3;
-    justify-self: end;
-  }
+  .header { padding: 14px 12px; }
+  .nav-left, .nav-right { gap: 16px; font-size: 11px; }
+  .wordmark { height: 40px; }
+  .nav-left { margin-right: 16px; }
+  .nav-right { margin-left: 16px; }
+  .menu-btn { margin-left: 16px; }
 }
 
 /* White border frame around content area */
