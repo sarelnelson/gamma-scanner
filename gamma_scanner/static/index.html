@@ -655,7 +655,7 @@ function renderPicks(mode) {
       let msg = 'No recent entries.';
       if (scan.last_scan_time) {
         const pst = new Date(scan.last_scan_time).toLocaleString('en-US', {timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit', hour12: true});
-        msg = `No recent entries. Last scan: ${pst} PST — ${scan.candidates_found || '?'} candidates screened.`;
+        msg = `No recent entries. Last scan: ${pst} PST — ${scan.candidates_found ?? 0} candidates screened.`;
       }
       grid.innerHTML = `<div style="color:#8b949e;padding:20px;font-size:13px;">${msg}</div>`;
     });
