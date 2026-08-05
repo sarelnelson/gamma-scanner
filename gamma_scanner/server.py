@@ -14,29 +14,30 @@ from broker_alpaca import get_option_quote, build_occ_symbol, get_account, PAPER
 app = FastAPI(title="Gamma Scanner", version="2.0")
 
 # Security — IP allowlist
-from security import get_client_ip, is_allowed, add_ip, is_gate_open, set_gate, get_all_ips, remove_ip
+from starlette.responses import PlainTextResponse, Response
+
+AUTH_COOKIE_NAME = "gamma_session"
+AUTH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60  # 30 days
 
 @app.middleware("http")
-async def check_ip(request: Request, call_next):
-    ip = get_client_ip(request)
+async def check_auth(request: Request, call_next):
     path = request.url.path
     
-    # Always allow: localhost, health check, static files
-    if ip in ("127.0.0.1", "localhost", "::1") or path == "/api/health" or path.startswith("/static"):
+    # Always allow: health check, static files, login page, login endpoint
+    if path == "/api/health" or path.startswith("/static") or path in ("/", "/favicon.ico") or path.startswith("/api/auth"):
         return await call_next(request)
     
-    # If IP is allowed, pass through
-    if is_allowed(ip):
+    # Check for valid session cookie
+    session = request.cookies.get(AUTH_COOKIE_NAME)
+    if session == "authenticated":
         return await call_next(request)
     
-    # If gate is open, allow login page and auth endpoint
-    if is_gate_open():
-        if path in ("/", "/dashboard") or path.startswith("/api/auth"):
-            return await call_next(request)
-    
-    # Blocked
-    from starlette.responses import PlainTextResponse
-    return PlainTextResponse("Access denied", status_code=403)
+    # No cookie — redirect to login or block API
+    if path.startswith("/api/"):
+        return PlainTextResponse("Unauthorized", status_code=401)
+    else:
+        from starlette.responses import RedirectResponse
+        return RedirectResponse("/")
 
 # Config
 from config import SCANNER_DIR, DATA_DIR, ALPACA_API_KEY, ALPACA_SECRET_KEY
@@ -90,42 +91,41 @@ def save_user_json(user_id, filename, data):
 
 @app.post("/api/auth/login")
 def login(body: dict, request: Request):
-    """Verify password and return token. Greenlists IP if gate is open."""
+    """Verify password and set session cookie."""
     users_config = load_users()
     if body.get("password") == users_config.get("password"):
         token = secrets.token_hex(16)
         _active_tokens.add(token)
         
-        # Greenlist this IP if gate is open
-        ip = get_client_ip(request)
-        if is_gate_open():
-            add_ip(ip, note=f"Login {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}")
-        
         user_list = [{"id": uid, "name": u["name"]} for uid, u in users_config.get("users", {}).items()]
-        return {"success": True, "token": token, "users": user_list, "ip_greenlisted": is_gate_open(), "your_ip": ip}
+        
+        from starlette.responses import JSONResponse
+        response = JSONResponse({"success": True, "token": token, "users": user_list})
+        response.set_cookie(
+            key=AUTH_COOKIE_NAME,
+            value="authenticated",
+            max_age=AUTH_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
     return {"success": False}
 
 
 # === SECURITY ADMIN ===
 
-@app.post("/api/admin/open-gate")
-def admin_open_gate():
-    set_gate(True)
-    return {"success": True, "message": "Gate OPEN — new logins will be greenlisted"}
-
-@app.post("/api/admin/close-gate")
-def admin_close_gate():
-    set_gate(False)
-    return {"success": True, "message": "Gate CLOSED — only greenlisted IPs can access"}
+@app.post("/api/admin/logout")
+def admin_logout():
+    """Clear session cookie."""
+    from starlette.responses import JSONResponse
+    response = JSONResponse({"success": True})
+    response.delete_cookie(AUTH_COOKIE_NAME)
+    return response
 
 @app.get("/api/admin/gate-status")
 def admin_gate_status():
-    return {"gate_open": is_gate_open(), "allowed_ips": get_all_ips()}
-
-@app.post("/api/admin/remove-ip")
-def admin_remove_ip(ip: str = Query(...)):
-    remove_ip(ip)
-    return {"success": True, "removed": ip}
+    """Kept for dashboard compatibility — gate concept removed."""
+    return {"gate_open": False, "allowed_ips": {}}
 
 
 @app.post("/api/auth/logout")
