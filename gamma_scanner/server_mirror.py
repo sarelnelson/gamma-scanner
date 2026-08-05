@@ -1,118 +1,72 @@
 """
 Gamma Scanner — DevSpaces Mirror Server
 
-Serves the same dashboard UI but reads live data from the GitHub Gist briefing
-instead of local files. This keeps DevSpaces in sync with EC2 without needing
-direct network access.
-
-Data flow: EC2 monitor → Gist → This server → Dashboard UI
+Same dashboard, queries Alpaca directly per user.
+No gist dependency. Shows live data for all accounts.
 """
 import os, json, time, requests
 from datetime import datetime
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-app = FastAPI(title="Gamma Scanner (Mirror)", version="2.1")
-
-# Gist config
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-GIST_ID = os.getenv("BRIEFING_GIST_ID", "e39d7fb7b6d1b7f4fbf26d190f4aa8dd")
-GIST_API = f"https://api.github.com/gists/{GIST_ID}"
-
-# Cache to avoid hammering GitHub API
-_cache = {"data": None, "fetched_at": 0}
-CACHE_TTL = 30  # seconds
+app = FastAPI(title="Gamma Scanner (Mirror)", version="3.0")
 
 SCANNER_DIR = os.path.dirname(os.path.abspath(__file__))
+PAPER_BASE = "https://paper-api.alpaca.markets"
+LIVE_BASE = "https://api.alpaca.markets"
+DATA_BASE = "https://data.alpaca.markets"
 
-
-def get_briefing() -> dict:
-    """Fetch briefing from gist with caching."""
-    now = time.time()
-    if _cache["data"] and (now - _cache["fetched_at"]) < CACHE_TTL:
-        return _cache["data"]
-    
+# Load users config
+def load_users():
     try:
-        resp = requests.get(
-            GIST_API,
-            headers={"Authorization": f"token {GITHUB_TOKEN}"},
-            timeout=10,
-        )
+        with open(os.path.join(SCANNER_DIR, "users.json")) as f:
+            return json.load(f)
+    except:
+        return {"password": "", "users": {}}
+
+
+def get_user_keys(user_id):
+    """Get Alpaca keys and base URL for a user."""
+    users = load_users()
+    user = users.get("users", {}).get(user_id, {})
+    key = user.get("alpaca_key", "")
+    secret = user.get("alpaca_secret", "")
+    is_paper = user.get("paper", True)
+    base = PAPER_BASE if is_paper else LIVE_BASE
+    headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+    return key, secret, base, headers
+
+
+def get_positions(user_id):
+    """Fetch positions from Alpaca for a user."""
+    key, secret, base, headers = get_user_keys(user_id)
+    if not key:
+        return []
+    try:
+        resp = requests.get(f"{base}/v2/positions", headers=headers, timeout=5)
         if resp.status_code == 200:
-            gist = resp.json()
-            content = gist["files"]["gamma_briefing.json"]["content"]
-            _cache["data"] = json.loads(content)
-            _cache["fetched_at"] = now
-            return _cache["data"]
-    except Exception as e:
-        print(f"[MIRROR] Gist fetch error: {e}")
-    
-    return _cache["data"] or {"error": "No data available", "users": {}}
+            return resp.json()
+    except:
+        pass
+    return []
 
 
-def positions_to_trades(user_data: dict) -> list:
-    """Convert briefing positions to the trades format the dashboard expects."""
-    trades = []
-    
-    for pos in user_data.get("open_positions", []):
-        trades.append({
-            "ticker": pos["ticker"],
-            "direction": pos["direction"],
-            "setup": pos.get("setup", "oversold_bounce"),
-            "score": pos.get("score", 0),
-            "entry_price": pos.get("entry_price") or pos.get("stock_price", 0),
-            "entry_date": pos["entry_date"],
-            "entry_time": pos.get("entry_time") or pos["entry_date"] + "T10:00:00",
-            "option_strike": pos["strike"],
-            "option_exp": pos["expiration"],
-            "option_cost": pos["entry_cost"],
-            "cost_per_contract": round(pos["entry_cost"] * 100, 2),
-            "status": "open",
-            "pnl": 0,
-            "current_pnl": pos.get("current_pnl_dollars", 0),
-            "current_option_bid": pos.get("current_bid"),
-            "current_option_mid": pos.get("current_bid"),
-            "current_price": pos.get("stock_price"),
-            "stock_change_pct": pos.get("stock_change_pct"),
-            "high_water_pct": pos.get("high_water_pct"),
-            "trailing_floor_pct": pos.get("trailing_floor_pct"),
-            "last_check": pos.get("last_check"),
-            "prev_option_bid": pos.get("current_bid"),
-            "prev_bid_date": pos["entry_date"],
-        })
-    
-    for t in user_data.get("closed_all", user_data.get("closed_today", [])):
-        trades.append({
-            "ticker": t["ticker"],
-            "direction": t["direction"],
-            "setup": "oversold_bounce",
-            "score": t.get("score", 0),
-            "entry_date": t.get("entry_date", ""),
-            "entry_time": t.get("entry_time"),
-            "entry_price": t.get("entry_price"),
-            "option_strike": t["strike"],
-            "option_exp": t.get("expiration", ""),
-            "option_cost": t["entry_cost"],
-            "cost_per_contract": round(t["entry_cost"] * 100, 2),
-            "status": "closed",
-            "pnl": t.get("pnl", 0),
-            "pnl_pct": t.get("pnl_pct"),
-            "exit_reason": t.get("exit_reason"),
-            "exit_date": t.get("exit_date"),
-            "exit_time": t.get("exit_time"),
-            "exit_option_bid": t.get("exit_option_bid"),
-            "exit_fill_price": t.get("exit_fill_price"),
-            "high_water_pct": t.get("high_water_pct"),
-            "net_proceeds": t.get("net_proceeds"),
-            "held_days": t.get("held_days"),
-            "exit_date": datetime.utcnow().strftime("%Y-%m-%d"),
-        })
-    
-    return trades
+def get_account(user_id):
+    """Fetch account info from Alpaca."""
+    key, secret, base, headers = get_user_keys(user_id)
+    if not key:
+        return {}
+    try:
+        resp = requests.get(f"{base}/v2/account", headers=headers, timeout=5)
+        if resp.status_code == 200:
+            return resp.json()
+    except:
+        pass
+    return {}
 
 
-# === Dashboard UI ===
+# === Pages ===
 
 @app.get("/", response_class=HTMLResponse)
 def login_page():
@@ -121,241 +75,209 @@ def login_page():
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
+    with open(os.path.join(SCANNER_DIR, "static", "dashboard_v2.html")) as f:
+        return f.read()
+
+@app.get("/dashboard-old", response_class=HTMLResponse)
+def dashboard_old():
     with open(os.path.join(SCANNER_DIR, "static", "index.html")) as f:
         return f.read()
 
-@app.post("/api/login")
-def login():
-    return {"success": True, "token": "mirror-mode"}
+@app.post("/api/auth/login")
+def login(body: dict):
+    users = load_users()
+    if body.get("password") == users.get("password"):
+        user_list = [{"id": uid, "name": u["name"]} for uid, u in users.get("users", {}).items()]
+        return {"success": True, "token": "mirror", "users": user_list}
+    return {"success": False}
 
 
-# === API Endpoints matching original server format ===
+# === API Endpoints ===
 
 @app.get("/api/health")
 def health():
-    briefing = get_briefing()
-    return {
-        "status": "ok",
-        "mode": "mirror",
-        "source": "gist",
-        "market_status": briefing.get("market_status", "unknown"),
-        "last_update": briefing.get("timestamp", "never"),
-    }
-
-
-@app.get("/api/trades")
-def get_trades(user: str = Query(default="sarel")):
-    briefing = get_briefing()
-    user_data = briefing.get("users", {}).get(user, {})
-    trades = positions_to_trades(user_data)
-    return {
-        "strict": [],
-        "loose": trades,
-    }
-
-
-@app.get("/api/picks")
-def get_picks():
-    return {
-        "strict": [],
-        "loose": [],
-    }
+    return {"status": "ok", "mode": "mirror", "time": datetime.utcnow().isoformat()}
 
 
 @app.get("/api/performance")
-def get_performance(user: str = Query(default="sarel")):
-    briefing = get_briefing()
-    user_data = briefing.get("users", {}).get(user, {})
-    trades = positions_to_trades(user_data)
+def performance(user: str = Query(default="scanner")):
+    """Build performance data from Alpaca positions."""
+    # Puts user: return empty — mirror can't access EC2's put trades
+    if user == "puts":
+        empty = {"total": 0, "open": 0, "closed": 0, "wins": 0, "losses": 0,
+                 "win_rate": 0, "total_pnl": 0, "open_pnl": 0, "avg_score": 0, "trades": []}
+        return {"strict": empty, "loose": empty, "combined_pnl": 0, "total_open": 0}
     
-    open_t = [t for t in trades if t["status"] == "open"]
-    closed_t = [t for t in trades if t["status"] == "closed"]
-    wins = sum(1 for t in closed_t if t.get("pnl", 0) > 0)
-    losses = len(closed_t) - wins
-    total_pnl = sum(t.get("pnl", 0) for t in closed_t)
-    open_pnl = sum(t.get("current_pnl", 0) for t in open_t)
+    positions = get_positions(user)
+    
+    trades = []
+    for p in positions:
+        qty = int(p["qty"])
+        entry = float(p["avg_entry_price"])
+        current = float(p["current_price"])
+        pl = float(p["unrealized_pl"])
+        pct = float(p["unrealized_plpc"]) * 100
+        symbol = p["symbol"]
+        
+        # Parse OCC symbol: TICKER(alpha) + YYMMDD + C/P + 8-digit strike
+        # e.g., HOOD260814C00087000 = HOOD, 2026-08-14, CALL, $87
+        import re
+        match = re.match(r'^([A-Z]+)(\d{6})([CP])(\d{8})$', symbol)
+        if match:
+            ticker = match.group(1)
+            date_str = match.group(2)
+            direction = "CALL" if match.group(3) == "C" else "PUT"
+            strike = int(match.group(4)) / 1000
+            expiration = f"20{date_str[:2]}-{date_str[2:4]}-{date_str[4:6]}"
+        else:
+            ticker = symbol
+            direction = "CALL"
+            strike = 0
+            expiration = ""
+        
+        trades.append({
+            "ticker": ticker,
+            "direction": direction,
+            "setup": "oversold_bounce",
+            "score": 0,
+            "entry_price": 0,
+            "entry_date": "",
+            "entry_time": "",
+            "option_strike": strike,
+            "option_exp": expiration,
+            "option_cost": entry,
+            "cost_per_contract": round(entry * 100, 2),
+            "status": "open",
+            "pnl": 0,
+            "current_pnl": round(pl / qty, 2),
+            "current_option_bid": current,
+            "current_price": None,
+            "stock_change_pct": None,
+            "high_water_pct": None,
+            "trailing_floor_pct": None,
+            "last_check": datetime.utcnow().isoformat(),
+            "num_contracts": qty,
+        })
+    
+    open_t = trades
+    open_pnl = sum(float(p.get("unrealized_pl", 0)) for p in positions)
     
     return {
         "strict": {"total": 0, "open": 0, "closed": 0, "wins": 0, "losses": 0,
                    "win_rate": 0, "total_pnl": 0, "open_pnl": 0, "avg_score": 0, "trades": []},
         "loose": {
             "total": len(trades),
-            "open": len(open_t),
-            "closed": len(closed_t),
-            "wins": wins,
-            "losses": losses,
-            "win_rate": round(wins / len(closed_t) * 100, 1) if closed_t else 0,
-            "total_pnl": round(total_pnl, 2),
+            "open": len(trades),
+            "closed": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate": 0,
+            "total_pnl": 0,
             "open_pnl": round(open_pnl, 2),
             "avg_score": 0,
             "trades": trades,
         },
-        "combined_pnl": round(total_pnl, 2),
-        "total_open": len(open_t),
+        "combined_pnl": 0,
+        "total_open": len(trades),
     }
 
 
+@app.get("/api/picks")
+def picks():
+    return {"strict": [], "loose": []}
+
+
 @app.get("/api/candidates")
-def get_candidates():
-    briefing = get_briefing()
-    scans = briefing.get("scans_today", {})
-    # Return empty candidates list — scan details aren't in briefing yet
+def candidates():
     return {"candidates": []}
 
 
 @app.get("/api/queue")
-def get_queue(user: str = Query(default="sarel")):
+def queue(user: str = Query(default="scanner")):
     return {"queue": []}
 
 
-@app.get("/api/last-scan")
-def last_scan():
-    briefing = get_briefing()
-    scans = briefing.get("scans_today", {})
-    return {
-        "last_scan_time": briefing.get("timestamp"),
-        "picks_found": scans.get("picks_found", 0),
-        "candidates_found": 0,
-    }
-
-
 @app.get("/api/daily-move")
-def daily_move():
-    """Today's P&L from Alpaca's lastday_price."""
-    try:
-        ALPACA_HEADERS = {
-            "APCA-API-KEY-ID": os.getenv("ALPACA_API_KEY", "PKOMKRLONHFRTJIPY3OTSRQYDP"),
-            "APCA-API-SECRET-KEY": os.getenv("ALPACA_SECRET_KEY", "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4"),
-        }
-        resp = requests.get("https://paper-api.alpaca.markets/v2/positions", headers=ALPACA_HEADERS, timeout=5)
-        if resp.status_code != 200:
-            return {"error": "Can't fetch positions"}
-        positions = resp.json()
-        total = 0
-        for p in positions:
-            qty = int(p["qty"])
-            current = float(p["current_price"])
-            lastday = float(p.get("lastday_price", current))
-            total += (current - lastday) * qty * 100
-        return {"total": round(total, 0)}
-    except Exception as e:
-        return {"error": str(e)}
+def daily_move(user: str = Query(default="scanner")):
+    positions = get_positions(user)
+    total = 0
+    for p in positions:
+        qty = int(p["qty"])
+        current = float(p["current_price"])
+        lastday = float(p.get("lastday_price", current))
+        total += (current - lastday) * qty * 100
+    return {"total": round(total, 0)}
 
 
 @app.get("/api/alpaca-pnl")
-def alpaca_pnl():
-    """Accurate P&L directly from Alpaca."""
-    try:
-        ALPACA_HEADERS = {
-            "APCA-API-KEY-ID": os.getenv("ALPACA_API_KEY", "PKOMKRLONHFRTJIPY3OTSRQYDP"),
-            "APCA-API-SECRET-KEY": os.getenv("ALPACA_SECRET_KEY", "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4"),
-        }
-        resp = requests.get("https://paper-api.alpaca.markets/v2/positions", headers=ALPACA_HEADERS, timeout=5)
-        if resp.status_code != 200:
-            return {"error": "Can't fetch positions"}
-        positions = resp.json()
-        unrealized = sum(float(p.get("unrealized_pl", 0)) for p in positions)
-        cost_basis = sum(float(p.get("cost_basis", 0)) for p in positions)
-        market_value = sum(float(p.get("market_value", 0)) for p in positions)
-        return {
-            "unrealized_pl": round(unrealized, 2),
-            "cost_basis": round(cost_basis, 2),
-            "market_value": round(market_value, 2),
-            "positions": len(positions),
-        }
-    except Exception as e:
-        return {"error": str(e)}
+def alpaca_pnl(user: str = Query(default="scanner")):
+    positions = get_positions(user)
+    if not positions:
+        return {"unrealized_pl": 0, "cost_basis": 0, "market_value": 0, "positions": 0}
+    unrealized = sum(float(p.get("unrealized_pl", 0)) for p in positions)
+    cost_basis = sum(float(p.get("cost_basis", 0)) for p in positions)
+    market_value = sum(float(p.get("market_value", 0)) for p in positions)
+    return {
+        "unrealized_pl": round(unrealized, 2),
+        "cost_basis": round(cost_basis, 2),
+        "market_value": round(market_value, 2),
+        "positions": len(positions),
+    }
 
 
 @app.get("/api/spy-context")
 def spy_context():
-    """SPY price, daily change, and 5-day trend."""
     try:
-        from datetime import datetime, timedelta
-        ALPACA_DATA_URL = "https://data.alpaca.markets/v2"
-        STOCK_HEADERS = {
-            "APCA-API-KEY-ID": os.getenv("ALPACA_API_KEY", "PKOMKRLONHFRTJIPY3OTSRQYDP"),
-            "APCA-API-SECRET-KEY": os.getenv("ALPACA_SECRET_KEY", "85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4"),
-        }
-        start = (datetime.utcnow() - timedelta(days=10)).strftime("%Y-%m-%d")
-        resp = requests.get(
-            f"{ALPACA_DATA_URL}/stocks/SPY/bars",
-            headers=STOCK_HEADERS,
-            params={"timeframe": "1Day", "limit": 7, "adjustment": "split", "start": start},
-            timeout=5,
-        )
+        key, secret, _, headers = get_user_keys("scanner")
+        start = (datetime.utcnow() - __import__("datetime").timedelta(days=10)).strftime("%Y-%m-%d")
+        resp = requests.get(f"{DATA_BASE}/v2/stocks/SPY/bars",
+            headers=headers, params={"timeframe": "1Day", "limit": 7, "adjustment": "split", "start": start}, timeout=5)
         if resp.status_code != 200:
-            return {"error": "SPY data unavailable"}
+            return {"error": "unavailable"}
         bars = resp.json().get("bars", [])
         if len(bars) < 2:
-            return {"error": "Insufficient data"}
-        
-        # Use snapshot for current intraday price
-        snap_resp = requests.get(
-            f"{ALPACA_DATA_URL}/stocks/SPY/snapshot",
-            headers=STOCK_HEADERS,
-            timeout=5,
-        )
-        if snap_resp.status_code == 200:
-            snap = snap_resp.json()
-            current = snap.get("latestTrade", {}).get("p", bars[-1]["c"])
-        else:
-            current = bars[-1]["c"]
-        
-        prev_close = bars[-2]["c"] if len(bars) >= 2 else bars[-1]["o"]
+            return {"error": "insufficient data"}
+        snap = requests.get(f"{DATA_BASE}/v2/stocks/SPY/snapshot", headers=headers, timeout=5)
+        current = snap.json().get("latestTrade", {}).get("p", bars[-1]["c"]) if snap.status_code == 200 else bars[-1]["c"]
+        prev_close = bars[-2]["c"]
         change_pct = (current - prev_close) / prev_close * 100
-        
         result = {"price": round(current, 2), "change_pct": round(change_pct, 2)}
-        
         if len(bars) >= 6:
-            price_5d_ago = bars[-6]["c"]
-            change_5d = (current - price_5d_ago) / price_5d_ago * 100
-            result["change_5d"] = round(change_5d, 2)
-        
+            result["change_5d"] = round((current - bars[-6]["c"]) / bars[-6]["c"] * 100, 2)
         return result
-    except Exception as e:
-        return {"error": str(e)}
+    except:
+        return {"error": "failed"}
+
+
+@app.get("/api/last-scan")
+def last_scan():
+    return {"last_scan_time": None, "picks_found": 0, "candidates_found": 0}
 
 
 @app.get("/api/status")
-def get_status(user: str = Query(default="sarel")):
-    briefing = get_briefing()
-    user_data = briefing.get("users", {}).get(user, {})
-    return {"paused": user_data.get("paused", False)}
+def status(user: str = Query(default="scanner")):
+    return {"paused": False}
 
 
 @app.get("/api/account")
-def account_info(user: str = Query(default="sarel")):
-    briefing = get_briefing()
-    user_data = briefing.get("users", {}).get(user, {})
-    alpaca = briefing.get("alpaca_positions", [])
-    
-    broker_equity = sum(p.get("market_value", 0) for p in alpaca)
-    
+def account_info(user: str = Query(default="scanner")):
+    acct = get_account(user)
     return {
-        "balance": user_data.get("account_balance", 0),
-        "deployed": sum(pos["entry_cost"] * 100 for pos in user_data.get("open_positions", [])),
+        "balance": 0,
+        "deployed": float(acct.get("cost_basis", 0)) if acct else 0,
         "available": 0,
-        "max_deploy": 0,
-        "cash_basis": 0,
-        "broker_equity": broker_equity,
-        "broker_buying_power": 0,
+        "broker_equity": float(acct.get("equity", 0)) if acct else 0,
+        "broker_buying_power": float(acct.get("buying_power", 0)) if acct else 0,
         "transactions": [],
     }
 
 
-@app.get("/api/alpaca-positions")
-def get_alpaca_positions():
-    briefing = get_briefing()
-    return briefing.get("alpaca_positions", [])
+@app.get("/api/admin/gate-status")
+def gate_status():
+    return {"gate_open": False, "allowed_ips": {}}
 
 
-@app.get("/api/briefing")
-def get_full_briefing():
-    return get_briefing()
-
-
-# Write endpoints — return "mirror mode" error for any action
+# Write endpoints — mirror is read-only
 @app.post("/api/scan")
 @app.post("/api/pause")
 @app.post("/api/unpause")
@@ -366,8 +288,14 @@ def get_full_briefing():
 @app.post("/api/sync-alpaca")
 @app.post("/api/account/deposit")
 @app.post("/api/account/withdraw")
-def mirror_write_blocked(**kwargs):
-    return {"error": "Mirror mode — actions must be done on EC2 dashboard", "success": False}
+@app.post("/api/admin/open-gate")
+@app.post("/api/admin/close-gate")
+def mirror_read_only(**kwargs):
+    return {"error": "Mirror is read-only. Use EC2 dashboard for actions.", "success": False}
+
+
+# Static files
+app.mount("/static", StaticFiles(directory=os.path.join(SCANNER_DIR, "static")), name="static")
 
 
 if __name__ == "__main__":

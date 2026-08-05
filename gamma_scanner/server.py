@@ -127,6 +127,12 @@ def login_page():
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
     """Serve the main dashboard."""
+    with open(os.path.join(SCANNER_DIR, "static/dashboard_v2.html")) as f:
+        return f.read()
+
+@app.get("/dashboard-old", response_class=HTMLResponse)
+def dashboard_old():
+    """Original dashboard (fallback)."""
     with open(os.path.join(SCANNER_DIR, "static/index.html")) as f:
         return f.read()
 def load_json(filename, default=None):

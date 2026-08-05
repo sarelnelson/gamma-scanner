@@ -54,30 +54,72 @@ body {
   z-index: 1;
 }
 
-/* Header */
+/* Header / Nav — centered logo, split nav */
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   padding: 20px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #e8ede9;
+  position: relative;
 }
+.nav-left, .nav-right {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: #4a5e53;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.nav-left { margin-right: 32px; }
+.nav-right { margin-left: 32px; }
+.nav-left a, .nav-right a {
+  text-decoration: none;
+  color: #4a5e53;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.nav-left a:hover, .nav-right a:hover { color: var(--green); }
+.nav-left a.active, .nav-right a.active { color: var(--green); font-weight: 600; }
 .wordmark {
-  height: 48px;
+  height: 56px;
 }
 .wordmark img {
   height: 100%;
   width: auto;
 }
 .menu-btn {
-  width: 40px; height: 40px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  margin-left: 32px;
+  width: 36px; height: 36px;
+  display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  background: none;
+  border: 1px solid #d4ddd7;
+  border-radius: 6px;
   cursor: pointer;
-  backdrop-filter: blur(8px);
 }
-.menu-btn span { display:block; width:16px; height:1.5px; background:var(--text2); border-radius:1px; }
+.menu-btn span { display:block; width:16px; height:1.5px; background:#4a5e53; border-radius:1px; }
+
+@media (max-width: 600px) {
+  .nav-left, .nav-right { display: none; }
+  .header { padding: 14px 16px; }
+  .wordmark { height: 44px; }
+  .menu-btn { margin-left: auto; }
+}
+
+/* White border frame around content area */
+.frame {
+  margin: 0;
+  border: 6px solid #ffffff;
+  box-shadow: 0 0 0 1px #d4ddd7;
+  min-height: 100vh;
+  position: relative;
+  z-index: 1;
+}
 
 /* Hero */
 .hero {
@@ -96,9 +138,31 @@ body {
   font-weight: 700;
   letter-spacing: -3px;
   line-height: 1;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2px black;
 }
 .hero-value.up { color: var(--green); }
 .hero-value.down { color: var(--red); }
+
+.hero-label {
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 1px black;
+}
+
+.pos-ticker {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+.pos-pnl { font-size: 16px; font-weight: 700; }
+
+.stat-value { font-size: 20px; font-weight: 700; }
 .hero-badges {
   display: flex;
   justify-content: center;
@@ -187,7 +251,7 @@ body {
   margin-bottom: 2px;
 }
 .slide-item:hover { background: var(--green-dim); color: var(--text); }
-.slide-item.active { background: var(--green-dim); color: var(--green); }
+.slide-item.active { background: var(--green-dim); color: var(--green); font-weight: 600; }
 .close-x { position:absolute; top:16px; right:16px; font-size:20px; color:var(--muted); cursor:pointer; }
 </style>
 </head>
@@ -197,12 +261,28 @@ body {
   <div class="bg-chameleon"></div>
 </div>
 
+<div class="frame">
 <div class="content">
   <div class="header">
+    <nav class="nav-left">
+      <a class="active" onclick="sw('scanner')">HOME</a>
+      <a onclick="sw('sarel')">SAREL</a>
+    </nav>
     <div class="wordmark"><img src="/static/logo.png" alt="Chameleon"></div>
+    <nav class="nav-right">
+      <a onclick="sw('yonah')">YONAH</a>
+    </nav>
     <button class="menu-btn" onclick="openMenu()"><span></span><span></span><span></span></button>
   </div>
 
+  <!-- Market Context -->
+  <div class="panel" style="margin:16px 20px 0;padding:10px 16px;display:flex;gap:20px;font-size:12px;flex-wrap:wrap;">
+    <div><span style="color:var(--muted)">SPY</span> <span id="spy-price" style="font-weight:600">—</span> <span id="spy-chg">—</span></div>
+    <div><span style="color:var(--muted)">5d</span> <span id="spy-5d">—</span></div>
+    <div><span style="color:var(--muted)">DTE</span> <span id="dte-val" style="font-weight:600">—</span></div>
+  </div>
+
+  <!-- Hero -->
   <div class="hero">
     <div class="hero-label" id="h-label">Portfolio</div>
     <div class="hero-value up" id="h-val">$0</div>
@@ -212,92 +292,251 @@ body {
     </div>
   </div>
 
-  <div class="panel">
+  <!-- Stats -->
+  <div class="panel" style="margin:0 20px 16px;">
     <div class="stats-grid">
-      <div><div class="stat-label">Realized</div><div class="stat-value" id="s-real">$1,187</div></div>
-      <div><div class="stat-label">Win Rate</div><div class="stat-value" id="s-wr">100%</div></div>
-      <div><div class="stat-label">Record</div><div class="stat-value" id="s-rec">6/0</div></div>
+      <div><div class="stat-label">Realized</div><div class="stat-value" id="s-real">$0</div></div>
+      <div><div class="stat-label">Win Rate</div><div class="stat-value" id="s-wr">—</div></div>
+      <div><div class="stat-label">Record</div><div class="stat-value" id="s-rec">0/0</div></div>
     </div>
   </div>
 
-  <div class="panel">
+  <!-- Open Positions -->
+  <div class="panel" style="margin:0 20px 16px;">
     <div class="section-head">
-      <div class="section-title">Positions</div>
-      <div class="section-count" id="p-count">21 open</div>
+      <div class="section-title">Open Positions</div>
+      <div class="section-count" id="p-count">0</div>
     </div>
     <div id="positions"></div>
   </div>
+
+  <!-- Closed Trades -->
+  <div class="panel" id="closed-panel" style="margin:0 20px 16px;">
+    <div class="section-head">
+      <div class="section-title">Recent Closes</div>
+      <div class="section-count" id="c-count">0</div>
+    </div>
+    <div id="closed"></div>
+  </div>
+
+  <!-- Scanner Info Page (hidden by default) -->
+  <div id="scanner-page" style="display:none;">
+    <div class="panel" style="margin:0 20px 16px;">
+      <div class="section-head">
+        <div class="section-title">Scanner Status</div>
+        <button onclick="doScan()" style="padding:6px 14px;border-radius:6px;border:1px solid var(--green);background:transparent;color:var(--green);font-size:12px;cursor:pointer;font-weight:600;">Run Scan</button>
+      </div>
+      <div id="scan-status" style="font-size:13px;color:var(--text2);padding:8px 0;">Loading...</div>
+    </div>
+    <div class="panel" style="margin:0 20px 16px;">
+      <div class="section-head">
+        <div class="section-title">Today's Picks</div>
+        <div class="section-count" id="picks-count">0</div>
+      </div>
+      <div id="picks-list"></div>
+    </div>
+    <div class="panel" style="margin:0 20px 16px;">
+      <div class="section-head">
+        <div class="section-title">Candidates (Screened)</div>
+        <div class="section-count" id="cands-count">0</div>
+      </div>
+      <div id="cands-list"></div>
+    </div>
+  </div>
+
 </div>
+</div><!-- /frame -->
 
 <!-- Menu -->
 <div class="overlay" id="ov" onclick="closeMenu()">
   <div class="slide-panel" onclick="event.stopPropagation()">
     <div class="close-x" onclick="closeMenu()">×</div>
-    <h4>Account</h4>
-    <div class="slide-item active" onclick="sw('scanner')">Scanner</div>
-    <div class="slide-item" onclick="sw('puts')">Reversal Puts</div>
-    <div class="slide-item" onclick="sw('sarel')">Sarel</div>
-    <div class="slide-item" onclick="sw('yonah')">Yonah</div>
+    <h4>Navigate</h4>
+    <div class="slide-item active" id="mi-scanner" onclick="sw('scanner')">Home</div>
+    <div class="slide-item" id="mi-sarel" onclick="sw('sarel')">Sarel</div>
+    <div class="slide-item" id="mi-yonah" onclick="sw('yonah')">Yonah</div>
+    <div class="slide-item" id="mi-puts" onclick="sw('puts')">Put Scanner</div>
+    <div class="slide-item" id="mi-scaninfo" onclick="showScannerPage()">Scanner Info</div>
     <h4>Actions</h4>
-    <div class="slide-item" onclick="closeMenu()">Run Scan</div>
-    <div class="slide-item" onclick="closeMenu()">Fund Account</div>
-    <div class="slide-item" onclick="closeMenu()">Pause</div>
-    <div class="slide-item" onclick="closeMenu()">Security Gate</div>
+    <div class="slide-item" onclick="doScan()">Run Scan</div>
+    <div class="slide-item" onclick="doFund()">Fund Account</div>
+    <div class="slide-item" onclick="doPause()">Pause Scanner</div>
+    <div class="slide-item" onclick="doLogout()">Log Out</div>
   </div>
 </div>
 
 <script>
-let user = 'scanner';
+let user = localStorage.getItem('gamma_user') || 'scanner';
 function openMenu(){document.getElementById('ov').classList.add('open')}
 function closeMenu(){document.getElementById('ov').classList.remove('open')}
-function sw(u){user=u;closeMenu();load();}
+function sw(u){user=u;localStorage.setItem('gamma_user',u);closeMenu();
+  // Highlight current menu item
+  document.querySelectorAll('.slide-item').forEach(el=>el.classList.remove('active'));
+  const mi=document.getElementById('mi-'+u);if(mi)mi.classList.add('active');
+  // Always return to positions view
+  scannerPageVisible=false;
+  document.getElementById('scanner-page').style.display='none';
+  document.getElementById('positions').parentElement.style.display='block';
+  document.getElementById('closed-panel').style.display='block';
+  load();
+  document.querySelectorAll('.nav-left a, .nav-right a').forEach(a=>a.classList.remove('active'));
+  if(event&&event.target)event.target.classList.add('active');
+}
+async function doScan(){closeMenu();const r=await fetch(`/api/scan?user=${user}`,{method:'POST'});const d=await r.json();alert(d.message||d.error||JSON.stringify(d));load();}
+function doFund(){closeMenu();alert('Use the EC2 dashboard to fund accounts');}
+async function doPause(){closeMenu();await fetch(`/api/pause?user=${user}`,{method:'POST'});alert('Toggled pause');}
+function doLogout(){closeMenu();localStorage.clear();window.location.href='/';}
+function toggleView(){
+  closeMenu();const frame=document.querySelector('.frame');const toggle=document.getElementById('view-toggle');
+  if(frame.style.maxWidth){frame.style.maxWidth='';frame.style.margin='';toggle.textContent='Mobile View';}
+  else{frame.style.maxWidth='390px';frame.style.margin='0 auto';toggle.textContent='Desktop View';}
+}
+
+let scannerPageVisible = false;
+function showScannerPage(){
+  closeMenu();
+  document.querySelectorAll('.slide-item').forEach(el=>el.classList.remove('active'));
+  scannerPageVisible = !scannerPageVisible;
+  if(scannerPageVisible) document.getElementById('mi-scaninfo').classList.add('active');
+  else document.getElementById('mi-'+user).classList.add('active');
+  const sp = document.getElementById('scanner-page');
+  const mp = document.getElementById('positions').parentElement;
+  const cp = document.getElementById('closed-panel');
+  if(scannerPageVisible){
+    sp.style.display='block';
+    mp.style.display='none';
+    cp.style.display='none';
+    loadScannerData();
+  } else {
+    sp.style.display='none';
+    mp.style.display='block';
+    cp.style.display='block';
+  }
+}
+
+async function loadScannerData(){
+  try{
+    const[scanR, candsR, picksR]=await Promise.all([
+      fetch('/api/last-scan'),
+      fetch('/api/candidates'),
+      fetch('/api/picks'),
+    ]);
+    
+    // Scan status
+    const scan=await scanR.json();
+    let statusHtml='';
+    if(scan.last_scan_time){
+      const t=new Date(scan.last_scan_time);
+      const timeStr=t.toLocaleString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true});
+      statusHtml=`Last scan: <strong>${timeStr} ET</strong> | Picks found: ${scan.picks_found||0} | Candidates: ${scan.candidates_found||0}`;
+    } else {
+      statusHtml='No scan data available';
+    }
+    document.getElementById('scan-status').innerHTML=statusHtml;
+    
+    // Candidates
+    const cands=(await candsR.json()).candidates||[];
+    document.getElementById('cands-count').textContent=cands.length;
+    document.getElementById('cands-list').innerHTML=cands.length?cands.map(c=>{
+      return `<div class="pos-item"><div class="pos-left">
+        <div class="pos-ticker">${c.ticker} <span style="font-size:11px;color:var(--muted)">${c.direction||'CALL'} | RSI ${c.rsi||'?'}</span></div>
+        <div class="pos-detail">$${c.price||'?'} | ATR ${c.atr_pct?.toFixed(1)||'?'}% | 10d: ${c.move_10d?.toFixed(0)||'?'}% | Quality: ${c.quality||'?'}</div>
+      </div><div class="pos-right"><div class="pos-pnl" style="font-size:14px;">${c.score||'?'}</div><div class="pos-pct">score</div></div></div>`;
+    }).join(''):'<div style="color:var(--muted);padding:12px 0;font-size:13px;">No candidates this scan</div>';
+    
+    // Picks (recent entries)
+    const picks=(await picksR.json());
+    const loosePicks=picks.loose||[];
+    document.getElementById('picks-count').textContent=loosePicks.length;
+    document.getElementById('picks-list').innerHTML=loosePicks.length?loosePicks.map(p=>{
+      return `<div class="pos-item"><div class="pos-left">
+        <div class="pos-ticker">${p.ticker||'?'} <span style="font-size:11px;color:var(--muted)">${p.direction||'CALL'} $${p.option_strike||''}</span></div>
+        <div class="pos-detail">Score: ${p.score||'?'} | Entry $${p.option_cost?.toFixed(2)||'?'} | ${p.entry_date||''}</div>
+      </div></div>`;
+    }).join(''):'<div style="color:var(--muted);padding:12px 0;font-size:13px;">No picks today</div>';
+    
+  }catch(e){console.error(e);}
+}
+function getDTE(exp){if(!exp)return'?';const d=Math.ceil((new Date(exp+'T16:00:00')-new Date())/(86400000));return d>=0?d:0;}
+function getBreakeven(t){if(!t.option_strike||!t.option_cost)return'?';return t.direction==='CALL'?(t.option_strike+t.option_cost).toFixed(2):(t.option_strike-t.option_cost).toFixed(2);}
 
 async function load(){
   try{
-    const[pR,dR,aR]=await Promise.all([
-      fetch(`/api/performance?user=${user}`),
-      user!=='puts'?fetch(`/api/daily-move?user=${user}`):null,
-      user!=='puts'?fetch(`/api/alpaca-pnl?user=${user}`):null,
+    const[pR,dR,aR,spyR]=await Promise.all([
+      fetch('/api/performance?user='+user),
+      user!=='puts'?fetch('/api/daily-move?user='+user):null,
+      user!=='puts'?fetch('/api/alpaca-pnl?user='+user):null,
+      fetch('/api/spy-context'),
     ]);
-    const p=await pR.json(), s=p.loose||{}, t=s.trades||[], op=t.filter(x=>x.status==='open');
-    
-    // Hero: account balance for live users, P&L for paper
-    const isLive = (user === 'sarel' || user === 'yonah');
-    let heroVal = 0;
-    
-    if (isLive) {
-      // Show account equity
-      try {
-        const acctR = await fetch(`/api/account?user=${user}`);
-        if (acctR.ok) {
-          const acct = await acctR.json();
-          heroVal = acct.broker_equity || 0;
-        }
-      } catch(e) {}
-      document.getElementById('h-label').textContent = 'Account Balance';
-      document.getElementById('h-val').textContent = `$${heroVal.toLocaleString(undefined,{maximumFractionDigits:0})}`;
-      document.getElementById('h-val').className = 'hero-value up';
+    const p=await pR.json(),s=p.loose||{},trades=s.trades||[];
+    const op=trades.filter(x=>x.status==='open');
+    const cl=trades.filter(x=>x.status==='closed'||x.status==='expired');
+
+    // SPY
+    if(spyR&&spyR.ok){const spy=await spyR.json();if(spy.price){
+      document.getElementById('spy-price').textContent='$'+spy.price.toFixed(0);
+      const c=spy.change_pct||0;document.getElementById('spy-chg').innerHTML='<span style="color:'+(c>=0?'var(--green)':'var(--red)')+'">'+(c>=0?'+':'')+c.toFixed(2)+'%</span>';
+      if(spy.change_5d!==undefined){const c5=spy.change_5d;document.getElementById('spy-5d').innerHTML='<span style="color:'+(c5>=0?'var(--green)':'var(--red)')+'">'+(c5>=0?'+':'')+c5.toFixed(1)+'%</span>';}
+    }}
+
+    // DTE
+    const exps=op.map(t=>t.option_exp).filter(Boolean).sort();
+    if(exps.length)document.getElementById('dte-val').textContent=getDTE(exps[0])+'d';
+
+    // Hero
+    const isLive=(user==='sarel'||user==='yonah');
+    if(isLive){
+      try{const acctR=await fetch('/api/account?user='+user);if(acctR.ok){const acct=await acctR.json();const eq=acct.broker_equity||0;
+        document.getElementById('h-label').textContent='Account Balance';
+        document.getElementById('h-val').textContent='$'+eq.toLocaleString(undefined,{maximumFractionDigits:0});
+        document.getElementById('h-val').className='hero-value up';}}catch(e){}
     } else {
-      // Show unrealized P&L
-      let unr = s.open_pnl || 0;
-      if(aR&&aR.ok){unr=(await aR.json()).unrealized_pl||unr;}
-      heroVal = unr;
-      document.getElementById('h-label').textContent = 'Unrealized P&L';
-      document.getElementById('h-val').textContent = `${unr>=0?'+':'-'}$${Math.abs(unr).toLocaleString(undefined,{maximumFractionDigits:0})}`;
-      document.getElementById('h-val').className = 'hero-value '+(unr>=0?'up':'down');
+      let unr=s.open_pnl||0;if(aR&&aR.ok){unr=(await aR.json()).unrealized_pl||unr;}
+      document.getElementById('h-label').textContent='Unrealized P&L';
+      document.getElementById('h-val').textContent=(unr>=0?'+':'-')+'$'+Math.abs(unr).toLocaleString(undefined,{maximumFractionDigits:0});
+      document.getElementById('h-val').className='hero-value '+(unr>=0?'up':'down');
     }
-    
-    if(dR&&dR.ok){const d=(await dR.json()).total||0;const e=document.getElementById('h-daily');e.textContent=`${d>=0?'+':''}$${d.toFixed(0)}`;e.className='val '+(d>=0?'up':'down');}
+
+    // Daily
+    if(dR&&dR.ok){const d=(await dR.json()).total||0;const e=document.getElementById('h-daily');
+      e.textContent=(d>=0?'+':'')+' $'+Math.abs(d).toFixed(0);e.className='val '+(d>=0?'up':'down');}
     document.getElementById('h-count').textContent=op.length;
-    document.getElementById('s-real').textContent=`$${(s.total_pnl||0).toFixed(0)}`;
-    document.getElementById('s-wr').textContent=`${s.win_rate||0}%`;
-    document.getElementById('s-rec').textContent=`${s.wins||0}/${s.losses||0}`;
-    document.getElementById('p-count').textContent=`${op.length} open`;
+
+    // Stats
+    document.getElementById('s-real').textContent='$'+(s.total_pnl||0).toFixed(0);
+    document.getElementById('s-wr').textContent=(s.win_rate||0)+'%';
+    document.getElementById('s-rec').textContent=(s.wins||0)+'/'+(s.losses||0);
+    document.getElementById('p-count').textContent=op.length;
+    document.getElementById('c-count').textContent=cl.length;
+
+    // Positions
     op.sort((a,b)=>(b.current_pnl||0)-(a.current_pnl||0));
-    document.getElementById('positions').innerHTML=op.map(x=>{
-      const pnl=x.current_pnl||0,e=x.option_cost||0,b=x.current_option_bid,pc=b&&e>0?((b-e)/e*100).toFixed(0):'—';
-      return`<div class="pos-item"><div><div class="pos-ticker">${x.ticker||'?'} <span style="font-size:11px;color:var(--muted)">${x.direction||''} $${x.option_strike||''}</span></div><div class="pos-detail">$${e.toFixed(2)} → $${b?.toFixed(2)||'—'}</div></div><div><div class="pos-pnl ${pnl>=0?'up':'down'}">${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(0)}</div><div class="pos-pct">${pc}%</div></div></div>`;
-    }).join('')||'<div style="color:var(--muted);padding:20px 0;font-size:13px;">No positions</div>';
+    document.getElementById('positions').innerHTML=op.length?op.map(t=>{
+      const pnl=t.current_pnl||0,entry=t.option_cost||0,bid=t.current_option_bid;
+      const pct=bid&&entry>0?((bid-entry)/entry*100).toFixed(0):'—';
+      const color=pnl>0?'var(--green)':pnl<0?'var(--red)':'var(--text2)';
+      const dte=getDTE(t.option_exp);const be=getBreakeven(t);
+      const hw=t.high_water_pct;const floor=t.trailing_floor_pct;
+      const daysHeld=t.entry_date?Math.floor((new Date()-new Date(t.entry_date))/86400000):'?';
+      return '<div class="pos-item"><div class="pos-left"><div class="pos-ticker">'+
+        (t.ticker||'?')+' <span style="font-size:11px;color:var(--muted)">'+(t.direction||'')+' $'+(t.option_strike||'')+'</span></div>'+
+        '<div class="pos-detail">$'+entry.toFixed(2)+' → $'+(bid?.toFixed(2)||'—')+' | BE $'+be+' | '+dte+'d DTE | Held '+daysHeld+'d</div>'+
+        (hw?'<div class="pos-detail" style="color:var(--green)">HW +'+hw.toFixed(0)+'%'+(floor?' | Floor +'+floor+'%':' | Need +'+(100-hw).toFixed(0)+'% more')+'</div>':'')+
+        '</div><div class="pos-right"><div class="pos-pnl '+(pnl>=0?'up':'down')+'">'+(pnl>=0?'+':'')+' $'+Math.abs(pnl).toFixed(0)+'</div>'+
+        '<div class="pos-pct">'+pct+'%</div></div></div>';
+    }).join(''):'<div style="color:var(--muted);padding:16px 0;font-size:13px;">No open positions</div>';
+
+    // Closed
+    cl.sort((a,b)=>(b.exit_date||'').localeCompare(a.exit_date||''));
+    document.getElementById('closed').innerHTML=cl.length?cl.slice(0,10).map(t=>{
+      const pnl=t.pnl||0;const color=pnl>0?'var(--green)':'var(--red)';
+      return '<div class="pos-item" style="border-left:3px solid '+color+';padding-left:12px;">'+
+        '<div class="pos-left"><div class="pos-ticker">'+(t.ticker||'?')+' <span style="font-size:11px;color:var(--muted)">'+(t.direction||'')+' $'+(t.option_strike||'')+'</span></div>'+
+        '<div class="pos-detail">'+(t.exit_date||'')+' | '+(t.exit_reason||'')+'</div></div>'+
+        '<div class="pos-right"><div class="pos-pnl '+(pnl>=0?'up':'down')+'">'+(pnl>=0?'+':'')+' $'+Math.abs(pnl).toFixed(0)+'</div>'+
+        '<div class="pos-pct">'+(t.pnl_pct?t.pnl_pct.toFixed(0)+'%':'—')+'</div></div></div>';
+    }).join(''):'<div style="color:var(--muted);padding:16px 0;font-size:13px;">No closed trades</div>';
+
   }catch(e){console.error(e);}
 }
 load();setInterval(load,30000);
