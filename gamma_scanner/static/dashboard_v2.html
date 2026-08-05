@@ -45,8 +45,14 @@ body {
 .bg-chameleon {
   position: absolute;
   inset: 0;
-  background: url('/static/chameleon_bg.png') center center/contain no-repeat;
+  background: url('/static/chameleon_bg.png') center center/cover no-repeat;
   background-color: #f2f7f5;
+}
+@media (max-width: 600px) {
+  .bg-chameleon {
+    background-position: 55% center;
+    opacity: 0.4;
+  }
 }
 
 /* Content layer */
@@ -107,9 +113,23 @@ body {
 
 @media (max-width: 600px) {
   .nav-left, .nav-right { display: none !important; }
-  .header { padding: 14px 16px; justify-content: space-between; }
-  .wordmark { height: 44px; }
-  .menu-btn { display: flex !important; margin-left: auto; }
+  .header { 
+    padding: 14px 16px; 
+    display: grid;
+    grid-template-columns: 40px 1fr 40px;
+    align-items: center;
+  }
+  .wordmark { 
+    height: 44px; 
+    grid-column: 2;
+    justify-self: center;
+  }
+  .menu-btn { 
+    display: flex !important; 
+    margin-left: 0;
+    grid-column: 3;
+    justify-self: end;
+  }
 }
 
 /* White border frame around content area */
