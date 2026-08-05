@@ -245,8 +245,9 @@ def get_performance(user: str = Query(default="sarel")):
 @app.get("/api/account")
 def account_info(user: str = Query(default="sarel")):
     """Account balance for a specific user."""
-    from user_manager import get_user_balance, get_user_deployed, load_user_account
+    from user_manager import get_user_balance, get_user_deployed, load_user_account, get_user_alpaca_keys, is_paper_user
     from scanner_loose import MAX_TOTAL_EXPOSURE_PCT
+    from broker_alpaca import PAPER_BASE, LIVE_BASE
     
     balance = get_user_balance(user)
     deployed = get_user_deployed(user)
@@ -257,20 +258,33 @@ def account_info(user: str = Query(default="sarel")):
     withdrawals = sum(t["amount"] for t in account.get("transactions", []) if t["type"] == "withdrawal")
     cash_basis = base + deposits - withdrawals
 
-    broker = get_account()
+    # Get broker info using per-user keys
+    broker_equity = 0
+    broker_buying_power = 0
+    broker_cash = 0
+    try:
+        key, secret = get_user_alpaca_keys(user)
+        if key:
+            base_url = PAPER_BASE if is_paper_user(user) else LIVE_BASE
+            headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+            resp = requests.get(f"{base_url}/v2/account", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                b = resp.json()
+                broker_equity = float(b.get("equity", 0))
+                broker_buying_power = float(b.get("buying_power", 0))
+                broker_cash = float(b.get("cash", 0))
+    except:
+        pass
+
     return {
-        "account": {
-            "cash_basis": round(cash_basis, 2),
-            "current_balance": round(balance, 2),
-            "total_return": round(balance - cash_basis, 2),
-            "total_return_pct": round((balance - cash_basis) / cash_basis * 100, 1) if cash_basis > 0 else 0,
-            "capital_deployed": round(deployed, 2),
-            "available_for_trades": round(max_deploy - deployed, 2),
-            "exposure_pct": round(deployed / balance * 100, 1) if balance > 0 else 0,
-        },
-        "funding": account,
-        "broker": broker if broker else {"status": "disconnected"},
-        "broker_mode": "PAPER" if PAPER_MODE else "LIVE",
+        "balance": round(balance, 2),
+        "deployed": round(deployed, 2),
+        "available": round(max_deploy - deployed, 2),
+        "cash_basis": round(cash_basis, 2),
+        "broker_equity": round(broker_equity, 2),
+        "broker_buying_power": round(broker_buying_power, 2),
+        "broker_cash": round(broker_cash, 2),
+        "transactions": account.get("transactions", []),
     }
 
 
