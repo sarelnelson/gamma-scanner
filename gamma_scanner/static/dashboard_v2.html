@@ -39,21 +39,14 @@ body {
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  background: #e8f0ed;
+  background: url('/static/bg11.jpg') center center/cover no-repeat;
 }
 
-/* Chameleon on top of texture */
+/* Chameleon cutout on top of texture */
 .bg-chameleon {
   position: absolute;
   inset: 0;
-  background: url('/static/chameleon_bg.png') center center/contain no-repeat;
-}
-@media (max-width: 700px) {
-  .bg-chameleon {
-    background-image: url('/static/chameleon_mobile.png');
-    background-size: 90% auto;
-    background-position: center center;
-  }
+  background: url('/static/chameleon_cutout.png') center center/contain no-repeat;
 }
 
 /* Content layer */
