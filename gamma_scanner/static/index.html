@@ -1119,7 +1119,7 @@ async function submitFunding() {
     if (data.success) {
       resultEl.style.background = '#0d2818';
       resultEl.style.color = '#3fb950';
-      resultEl.textContent = data.message + ` | New basis: $${data.new_cash_basis.toFixed(2)}`;
+      resultEl.textContent = `Success! Balance: $${data.new_balance || amount}`;
       fetchData(); // refresh dashboard
       setTimeout(closeFundingModal, 2000);
     } else {
