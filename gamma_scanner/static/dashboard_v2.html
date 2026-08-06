@@ -554,10 +554,25 @@ async function load(){
     // Hero
     const isLive=(user==='sarel'||user==='yonah');
     if(isLive){
-      try{const acctR=await fetch('/api/account?user='+user);if(acctR.ok){const acct=await acctR.json();const eq=acct.broker_equity||0;
-        document.getElementById('h-label').textContent='Account Balance';
-        document.getElementById('h-val').textContent='$'+eq.toLocaleString(undefined,{maximumFractionDigits:0});
-        document.getElementById('h-val').className='hero-value up';}}catch(e){}
+      try{
+        const [acctR2, dailyR2] = await Promise.all([
+          fetch('/api/account?user='+user),
+          fetch('/api/daily-move?user='+user)
+        ]);
+        if(acctR2.ok){
+          const acct=await acctR2.json();
+          const eq=acct.broker_equity||0;
+          let dailyMove=0;
+          if(dailyR2&&dailyR2.ok){dailyMove=(await dailyR2.json()).total||0;}
+          document.getElementById('h-label').textContent='Account Balance';
+          document.getElementById('h-val').textContent='$'+eq.toLocaleString(undefined,{maximumFractionDigits:0});
+          document.getElementById('h-val').className='hero-value '+(dailyMove>=0?'up':'down');
+          // Update today badge with the daily move
+          const db=document.getElementById('h-daily');
+          db.textContent=(dailyMove>=0?'+':'')+' $'+Math.abs(dailyMove).toFixed(0);
+          db.className='val '+(dailyMove>=0?'up':'down');
+        }
+      }catch(e){}
     } else {
       let unr=s.open_pnl||0;if(aR&&aR.ok){unr=(await aR.json()).unrealized_pl||unr;}
       document.getElementById('h-label').textContent='Unrealized P&L';
