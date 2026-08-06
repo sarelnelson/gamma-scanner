@@ -213,8 +213,27 @@ body {
   align-items: center;
   padding: 14px 0;
   border-bottom: 1px solid rgba(16,185,129,0.06);
+  cursor: pointer;
+  flex-wrap: wrap;
 }
 .pos-item:last-child { border-bottom: none; }
+.pos-expanded {
+  width: 100%;
+  padding: 10px 0 4px;
+  display: none;
+  font-size: 12px;
+  color: var(--text2);
+}
+.pos-expanded.open { display: block; }
+.pos-expanded .detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.pos-expanded .detail-row:last-child { border-bottom: none; }
+.pos-expanded .detail-label { color: var(--muted); }
+.pos-expanded .detail-value { font-weight: 500; color: var(--text); }
 .pos-ticker { font-size: 16px; font-weight: 600; }
 .pos-detail { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .pos-pnl { font-size: 16px; font-weight: 700; text-align: right; }
@@ -489,6 +508,11 @@ async function loadScannerData(){
 function getDTE(exp){if(!exp)return'?';const d=Math.ceil((new Date(exp+'T16:00:00')-new Date())/(86400000));return d>=0?d:0;}
 function getBreakeven(t){if(!t.option_strike||!t.option_cost)return'?';return t.direction==='CALL'?(t.option_strike+t.option_cost).toFixed(2):(t.option_strike-t.option_cost).toFixed(2);}
 
+function toggleExpand(id){
+  const el=document.getElementById(id);
+  if(el)el.classList.toggle('open');
+}
+
 async function load(){
   try{
     const[pR,dR,aR,spyR]=await Promise.all([
@@ -547,12 +571,25 @@ async function load(){
       const dte=getDTE(t.option_exp);const be=getBreakeven(t);
       const hw=t.high_water_pct;const floor=t.trailing_floor_pct;
       const daysHeld=t.entry_date?Math.floor((new Date()-new Date(t.entry_date))/86400000):'?';
-      return '<div class="pos-item"><div class="pos-left"><div class="pos-ticker">'+
+      const id='pos-'+i;
+      return '<div class="pos-item" onclick="toggleExpand(\''+id+'\')"><div class="pos-left"><div class="pos-ticker">'+
         (t.ticker||'?')+' <span style="font-size:11px;color:var(--muted)">'+(t.direction||'')+' $'+(t.option_strike||'')+'</span></div>'+
-        '<div class="pos-detail">$'+entry.toFixed(2)+' → $'+(bid?.toFixed(2)||'—')+' | BE $'+be+' | '+dte+'d DTE | Held '+daysHeld+'d</div>'+
-        (hw?'<div class="pos-detail" style="color:var(--green)">HW +'+hw.toFixed(0)+'%'+(floor?' | Floor +'+floor+'%':' | Need +'+(100-hw).toFixed(0)+'% more')+'</div>':'')+
+        '<div class="pos-detail">$'+entry.toFixed(2)+' → $'+(bid?.toFixed(2)||'—')+' | '+pct+'%</div>'+
         '</div><div class="pos-right"><div class="pos-pnl '+(pnl>=0?'up':'down')+'">'+(pnl>=0?'+':'')+' $'+Math.abs(pnl).toFixed(0)+'</div>'+
-        '<div class="pos-pct">'+pct+'%</div></div></div>';
+        '<div class="pos-pct">'+dte+'d DTE</div></div>'+
+        '<div class="pos-expanded" id="'+id+'">'+
+        '<div class="detail-row"><span class="detail-label">Entry Price</span><span class="detail-value">$'+entry.toFixed(2)+' per contract</span></div>'+
+        '<div class="detail-row"><span class="detail-label">Current Bid</span><span class="detail-value">$'+(bid?.toFixed(2)||'—')+'</span></div>'+
+        '<div class="detail-row"><span class="detail-label">Breakeven</span><span class="detail-value">$'+be+'</span></div>'+
+        '<div class="detail-row"><span class="detail-label">Days Held</span><span class="detail-value">'+daysHeld+' days</span></div>'+
+        '<div class="detail-row"><span class="detail-label">DTE</span><span class="detail-value">'+dte+' days remaining</span></div>'+
+        '<div class="detail-row"><span class="detail-label">Expiration</span><span class="detail-value">'+(t.option_exp||'—')+'</span></div>'+
+        (hw?'<div class="detail-row"><span class="detail-label">High Water</span><span class="detail-value" style="color:var(--green)">+'+hw.toFixed(0)+'%</span></div>':'')+ 
+        (floor?'<div class="detail-row"><span class="detail-label">Trail Floor</span><span class="detail-value">+'+floor+'%</span></div>':
+               '<div class="detail-row"><span class="detail-label">Trail Activation</span><span class="detail-value">Need +'+(hw?(100-hw).toFixed(0):'100')+'% more</span></div>')+
+        '<div class="detail-row"><span class="detail-label">Score</span><span class="detail-value">'+(t.score||'—')+'</span></div>'+
+        '<div class="detail-row"><span class="detail-label">Stock Price</span><span class="detail-value">'+(t.current_price?'$'+t.current_price.toFixed(2):'—')+'</span></div>'+
+        '</div></div>';
     }).join(''):'<div style="color:var(--muted);padding:16px 0;font-size:13px;">No open positions</div>';
 
     // Closed
