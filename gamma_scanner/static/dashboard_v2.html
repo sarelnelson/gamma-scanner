@@ -588,7 +588,8 @@ async function load(){
       const daysHeld=t.entry_date?Math.floor((new Date()-new Date(t.entry_date))/86400000):'?';
       const id='pos-'+i;
       return '<div class="pos-item" onclick="toggleExpand(\''+id+'\')"><div class="pos-left"><div class="pos-ticker">'+
-        (t.ticker||'?')+' <span style="font-size:11px;color:var(--muted)">'+(t.direction||'')+' $'+(t.option_strike||'')+'</span></div>'+
+        (t.ticker||'?')+' <span style="font-size:11px;color:var(--muted)">'+(t.direction||'')+' $'+(t.option_strike||'')+'</span>'+
+        (t.num_contracts&&t.num_contracts>1?'<span style="font-size:11px;font-weight:700;color:var(--green);margin-left:4px;">x'+t.num_contracts+'</span>':'')+'</div>'+
         '<div class="pos-detail">$'+entry.toFixed(2)+' → $'+(bid?.toFixed(2)||'—')+' | '+pct+'%</div>'+
         '</div><div class="pos-right"><div class="pos-pnl '+(pnl>=0?'up':'down')+'">'+(pnl>=0?'+':'')+' $'+Math.abs(pnl).toFixed(0)+'</div>'+
         '<div class="pos-pct">'+dte+'d DTE</div></div>'+
