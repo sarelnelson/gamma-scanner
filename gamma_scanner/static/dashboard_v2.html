@@ -579,7 +579,7 @@ async function load(){
 
     // Positions
     op.sort((a,b)=>(b.current_pnl||0)-(a.current_pnl||0));
-    document.getElementById('positions').innerHTML=op.length?op.map(t=>{
+    document.getElementById('positions').innerHTML=op.length?op.map((t,i)=>{
       const pnl=t.current_pnl||0,entry=t.option_cost||0,bid=t.current_option_bid;
       const pct=bid&&entry>0?((bid-entry)/entry*100).toFixed(0):'—';
       const color=pnl>0?'var(--green)':pnl<0?'var(--red)':'var(--text2)';
