@@ -383,8 +383,8 @@ def buy_to_open(ticker: str, expiration: str, direction: str, strike: float,
         limit = max_price
         log(f"  Using max_price ${max_price:.2f} (below mid ${quote['mid']:.2f})")
     
-    # Reject if spread is too wide (>15% means illiquid, likely bad fill)
-    if quote["spread_pct"] > 15:
+    # Reject if spread is too wide (>20% means illiquid, likely bad fill)
+    if quote["spread_pct"] > 20:
         log(f"BTO REJECTED: Spread too wide ({quote['spread_pct']:.1f}%) for {symbol}", "WARN")
         result["status"] = "rejected_spread"
         return result
