@@ -386,7 +386,20 @@ function sw(u){user=u;localStorage.setItem('gamma_user',u);closeMenu();
   if(event&&event.target)event.target.classList.add('active');
 }
 async function doScan(){closeMenu();const r=await fetch(`/api/scan?user=${user}`,{method:'POST'});const d=await r.json();alert(d.message||d.error||JSON.stringify(d));load();}
-function doFund(){closeMenu();alert('Use the EC2 dashboard to fund accounts');}
+async function doFund(){
+  closeMenu();
+  const amount = prompt('Enter deposit amount ($):');
+  if (!amount || isNaN(amount) || parseFloat(amount) <= 0) return;
+  const note = prompt('Note (optional):') || '';
+  const resp = await fetch(`/api/account/deposit?amount=${parseFloat(amount)}&note=${encodeURIComponent(note)}&user=${user}`, {method:'POST'});
+  const data = await resp.json();
+  if (data.success) {
+    alert(`Success! Balance: $${data.new_balance}`);
+    load();
+  } else {
+    alert('Error: ' + (data.error || 'Failed'));
+  }
+}
 async function doPause(){closeMenu();await fetch(`/api/pause?user=${user}`,{method:'POST'});alert('Toggled pause');}
 function doLogout(){closeMenu();localStorage.clear();window.location.href='/';}
 function toggleView(){
