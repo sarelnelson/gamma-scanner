@@ -136,13 +136,17 @@ def dashboard_old():
     """Original dashboard (fallback)."""
     with open(os.path.join(SCANNER_DIR, "static/index.html")) as f:
         return f.read()
+
 def load_json(filename, default=None):
-    path = os.path.join(DATA_DIR, filename)
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except:
-        return default if default is not None else []
+    # Check DATA_DIR first, then SCANNER_DIR
+    for dir in [DATA_DIR, SCANNER_DIR]:
+        path = os.path.join(dir, filename)
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except:
+            continue
+    return default if default is not None else []
 
 
 

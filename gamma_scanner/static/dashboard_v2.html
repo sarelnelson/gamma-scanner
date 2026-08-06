@@ -385,7 +385,20 @@ function sw(u){user=u;localStorage.setItem('gamma_user',u);closeMenu();
   document.querySelectorAll('.nav-left a, .nav-right a').forEach(a=>a.classList.remove('active'));
   if(event&&event.target)event.target.classList.add('active');
 }
-async function doScan(){closeMenu();const r=await fetch(`/api/scan?user=${user}`,{method:'POST'});const d=await r.json();alert(d.message||d.error||JSON.stringify(d));load();}
+async function doScan(){
+  closeMenu();
+  const scanStatus = document.getElementById('scan-status');
+  if(scanStatus) scanStatus.innerHTML = '<span style="color:var(--green)">⏳ Scanning 498 stocks... (30-60 seconds)</span>';
+  try {
+    const r = await fetch(`/api/scan?user=${user}`, {method:'POST'});
+    const d = await r.json();
+    alert(`Scan complete: ${d.picks_found || 0} picks found`);
+    if(scannerPageVisible) loadScannerData();
+    load();
+  } catch(e) {
+    alert('Scan error: ' + e.message);
+  }
+}
 async function doFund(){
   closeMenu();
   const amount = prompt('Enter deposit amount ($):');
