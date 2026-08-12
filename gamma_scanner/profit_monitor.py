@@ -342,7 +342,7 @@ def check_positions_for_trades(trades, user_id=""):
             # On expiration day, sell to capture remaining value instead of
             # letting it expire/auto-exercise. Sell after 2PM ET (18:00 UTC)
             # to give the position maximum time to move, but before close.
-            if today == exp_date and datetime.utcnow().hour >= 18:
+            if today == exp_date and datetime.utcnow().hour >= 17:
                 if not trade.get("expiry_sell_attempted"):
                     trade["expiry_sell_attempted"] = True
                     log(f"  ⏰ EXPIRY SELL: {ticker} {direction} ${strike} — expiring today, selling to capture value")
@@ -690,6 +690,38 @@ def run_monitor():
             # Check positions every cycle (always runs, even if paused)
             check_all_users()
             consecutive_errors = 0
+            
+            # Stock position watchdog — sell any accidental equity positions
+            try:
+                from user_manager import get_active_users, get_user_alpaca_keys, is_paper_user
+                from broker_alpaca import PAPER_BASE, LIVE_BASE
+                import requests as _req
+                for uid in get_active_users():
+                    if uid == "puts":
+                        continue
+                    key, secret = get_user_alpaca_keys(uid)
+                    if not key:
+                        continue
+                    base = PAPER_BASE if is_paper_user(uid) else LIVE_BASE
+                    headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+                    resp = _req.get(f"{base}/v2/positions", headers=headers, timeout=5)
+                    if resp.status_code == 200:
+                        for pos in resp.json():
+                            if pos.get("asset_class") == "us_equity":
+                                # Sell stock immediately — we should never hold shares
+                                symbol = pos["symbol"]
+                                qty = pos["qty"]
+                                log(f"  ⚠️ STOCK DETECTED: {symbol} {qty} shares for {uid} — SELLING")
+                                sell_resp = _req.post(f"{base}/v2/orders",
+                                    headers={**headers, "Content-Type": "application/json"},
+                                    json={"symbol": symbol, "qty": str(qty), "side": "sell", "type": "market", "time_in_force": "day"},
+                                    timeout=5)
+                                if sell_resp.status_code in (200, 201):
+                                    log(f"  ✅ Sold {qty} shares of {symbol} for {uid}")
+                                else:
+                                    log(f"  ❌ Failed to sell {symbol}: {sell_resp.text}", "ERROR")
+            except Exception as e:
+                pass  # Non-critical
             
             # Check reversal put exits
             try:
