@@ -402,7 +402,8 @@ def daily_move(user: str = Query(default="scanner")):
             qty = int(p["qty"])
             current = float(p["current_price"])
             lastday = float(p.get("lastday_price", current))
-            move = (current - lastday) * qty * 100
+            multiplier = 100 if p.get("asset_class") == "us_option" else 1
+            move = (current - lastday) * qty * multiplier
             total += move
             details.append({"symbol": p["symbol"][:4], "move": round(move, 0)})
         return {"total": round(total, 0), "details": details}
