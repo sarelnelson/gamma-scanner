@@ -498,19 +498,24 @@ def trigger_scan(user: str = Query(default="sarel")):
     from scanner_loose import run_scan
     picks = run_scan()
     
-    # Save scan metadata
+    # Save scan metadata — read candidates from where scanner writes them
+    candidates = load_json("candidates.json")
     scan_info = {
         "last_scan_time": datetime.utcnow().isoformat() + "Z",
-        "picks_found": len(picks),
-        "candidates_found": len(load_json("candidates.json")),
+        "picks_found": len(picks) if picks else 0,
+        "candidates_found": len(candidates),
     }
     with open(os.path.join(DATA_DIR, "last_scan.json"), "w") as f:
         json.dump(scan_info, f)
+    # Also copy candidates to DATA_DIR for consistency
+    with open(os.path.join(DATA_DIR, "candidates.json"), "w") as f:
+        json.dump(candidates, f)
     
     return {
         "triggered": True,
-        "picks_found": len(picks),
-        "picks": picks,
+        "picks_found": len(picks) if picks else 0,
+        "candidates_found": len(candidates),
+        "message": f"Scan complete: {len(picks) if picks else 0} picks, {len(candidates)} candidates screened",
     }
 
 
