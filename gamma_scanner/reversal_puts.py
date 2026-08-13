@@ -79,6 +79,7 @@ def enter_reversal_put(trade: dict, log_fn=None):
             import broker_alpaca as _ba
             from user_manager import get_user_alpaca_keys, is_paper_user
             from broker_alpaca import buy_to_open, PAPER_BASE
+            from data_alpaca import get_option_expirations, get_option_chain
             
             # Use paper keys for puts
             key, secret = get_user_alpaca_keys(PUT_USER)
@@ -89,14 +90,38 @@ def enter_reversal_put(trade: dict, log_fn=None):
                 _ba.HEADERS_JSON = {**_ba.HEADERS, "Content-Type": "application/json"}
                 _ba.BASE_URL = PAPER_BASE
             
-            result = buy_to_open(ticker, expiration, "PUT", strike)
+            # Get current stock price for ATM strike
+            import requests as _req
+            snap = _req.get(f"https://data.alpaca.markets/v2/stocks/{ticker}/snapshot",
+                headers={"APCA-API-KEY-ID": _ba.API_KEY, "APCA-API-SECRET-KEY": _ba.API_SECRET}, timeout=5)
+            if snap.status_code != 200:
+                log(f"  PUT FAILED: Can't get stock price for {ticker}")
+                return
+            current_price = float(snap.json().get("latestTrade", {}).get("p", 0))
+            if not current_price:
+                log(f"  PUT FAILED: No price for {ticker}")
+                return
+            
+            # Find ATM strike with 14-28 DTE expiration
+            put_strike = round(current_price)  # nearest dollar = ATM
+            expirations = get_option_expirations(ticker, min_days=14, max_days=28)
+            if not expirations:
+                # Fallback: try 7-35 day window
+                expirations = get_option_expirations(ticker, min_days=7, max_days=35)
+            if not expirations:
+                log(f"  PUT FAILED: No valid expirations for {ticker}")
+                return
+            put_exp = expirations[0]  # nearest valid expiration
+            
+            log(f"  PUT: {ticker} ATM ${put_strike} exp {put_exp} (stock at ${current_price:.2f})")
+            result = buy_to_open(ticker, put_exp, "PUT", put_strike)
             
             if not result["success"]:
                 log(f"  PUT ORDER FAILED: {ticker} — {result['status']}")
                 return
             
             fill_price = result["fill_price"]
-            log(f"  ✅ PUT FILLED: {ticker} PUT ${strike} @ ${fill_price:.2f}")
+            log(f"  ✅ PUT FILLED: {ticker} PUT ${put_strike} @ ${fill_price:.2f}")
             
             # Record the put trade
             put_trade = {
@@ -104,11 +129,11 @@ def enter_reversal_put(trade: dict, log_fn=None):
                 "direction": "PUT",
                 "setup": "reversal_put",
                 "score": 0,
-                "entry_price": trade.get("current_price", trade.get("entry_price", 0)),
+                "entry_price": current_price,
                 "entry_date": datetime.utcnow().strftime("%Y-%m-%d"),
                 "entry_time": datetime.utcnow().isoformat(),
-                "option_strike": strike,
-                "option_exp": expiration,
+                "option_strike": put_strike,
+                "option_exp": put_exp,
                 "option_cost": fill_price,
                 "cost_per_contract": round(fill_price * 100, 2),
                 "status": "open",
