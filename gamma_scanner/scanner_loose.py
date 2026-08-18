@@ -41,17 +41,23 @@ def get_stock_history(ticker, days=90):
             pass
     return pd.DataFrame()
 
-SCANNER_DIR = "/workspace/stock-agent/gamma_scanner"
-PICKS_FILE = f"{SCANNER_DIR}/picks_loose.json"
-TRADES_FILE = f"{SCANNER_DIR}/trades_loose.json"
-os.makedirs(SCANNER_DIR, exist_ok=True)
-# scan.log MUST live in DATA_DIR because briefing.py::get_scan_summary reads it from
-# DATA_DIR (/app/data) first. On EC2, SCANNER_DIR is a hardcoded phantom path that the
-# briefing never reads, which left scans_today (scans_run/picks_found/entries_made)
-# permanently 0. Resolve the log dir the same way config.py does so both sides agree.
-_SCAN_LOG_DIR = os.environ.get("GAMMA_DATA_DIR") or ("/app/data" if os.path.isdir("/app/data") else SCANNER_DIR)
-os.makedirs(_SCAN_LOG_DIR, exist_ok=True)
-SCAN_LOG = f"{_SCAN_LOG_DIR}/scan.log"
+# Resolve dirs the SAME way config.py does, so the scanner writes its outputs
+# (scan.log, candidates.json, picks_loose.json) where the dashboard (load_json) and
+# briefing (get_scan_summary) actually read them: DATA_DIR first.
+#
+# The old value SCANNER_DIR = "/workspace/stock-agent/gamma_scanner" was a hardcoded
+# DevSpaces path that does NOT exist on EC2. os.makedirs auto-created it as an orphan
+# dir inside the container, so every scan wrote candidates/picks/scan.log there while
+# all readers looked in /app/data. Result on EC2: scans_today stuck at 0 and the
+# "candidates found" / "stocks scanned" dashboard boxes stayed empty even when a scan
+# found candidates. Live/paper trade persistence is unaffected (that uses per-user
+# DATA_DIR/user_<id>/trades.json via save_user_trades, not TRADES_FILE below).
+SCANNER_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("GAMMA_DATA_DIR") or ("/app/data" if os.path.isdir("/app/data") else SCANNER_DIR)
+os.makedirs(DATA_DIR, exist_ok=True)
+PICKS_FILE = f"{DATA_DIR}/picks_loose.json"       # candidates.json is written next to this
+TRADES_FILE = f"{DATA_DIR}/trades_loose.json"     # legacy single-account file; matches config.py
+SCAN_LOG = f"{DATA_DIR}/scan.log"
 
 # Load full ticker universe from file (4500+ liquid US stocks)
 # Generated from Alpaca assets API — NYSE, NASDAQ, ARCA, tradeable + shortable
