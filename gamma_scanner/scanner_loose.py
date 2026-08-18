@@ -44,8 +44,14 @@ def get_stock_history(ticker, days=90):
 SCANNER_DIR = "/workspace/stock-agent/gamma_scanner"
 PICKS_FILE = f"{SCANNER_DIR}/picks_loose.json"
 TRADES_FILE = f"{SCANNER_DIR}/trades_loose.json"
-SCAN_LOG = f"{SCANNER_DIR}/scan.log"
 os.makedirs(SCANNER_DIR, exist_ok=True)
+# scan.log MUST live in DATA_DIR because briefing.py::get_scan_summary reads it from
+# DATA_DIR (/app/data) first. On EC2, SCANNER_DIR is a hardcoded phantom path that the
+# briefing never reads, which left scans_today (scans_run/picks_found/entries_made)
+# permanently 0. Resolve the log dir the same way config.py does so both sides agree.
+_SCAN_LOG_DIR = os.environ.get("GAMMA_DATA_DIR") or ("/app/data" if os.path.isdir("/app/data") else SCANNER_DIR)
+os.makedirs(_SCAN_LOG_DIR, exist_ok=True)
+SCAN_LOG = f"{_SCAN_LOG_DIR}/scan.log"
 
 # Load full ticker universe from file (4500+ liquid US stocks)
 # Generated from Alpaca assets API — NYSE, NASDAQ, ARCA, tradeable + shortable
