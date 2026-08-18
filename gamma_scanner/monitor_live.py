@@ -20,8 +20,8 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-sys.path.insert(0, "/workspace/stock-agent")
-sys.path.insert(0, "/workspace/stock-agent/gamma_scanner")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from market_clock import is_market_open
 from broker_alpaca import (
     get_option_quote, find_contract, build_occ_symbol,
@@ -32,8 +32,10 @@ from broker_alpaca import (
 # === CONFIG ===
 
 LIVE_EXECUTION = False  # ← SET TO True TO EXECUTE REAL ORDERS
-TRADES_FILE = "/workspace/stock-agent/gamma_scanner/trades_loose.json"
-LOG_FILE = "/workspace/stock-agent/gamma_scanner/monitor_live.log"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_DATA_DIR = os.environ.get("GAMMA_DATA_DIR") or ("/app/data" if os.path.isdir("/app/data") else _HERE)
+TRADES_FILE = os.path.join(_DATA_DIR, "trades_loose.json")
+LOG_FILE = os.path.join(_DATA_DIR, "monitor_live.log")
 CHECK_INTERVAL = 120  # 2 minutes
 
 # Exit thresholds

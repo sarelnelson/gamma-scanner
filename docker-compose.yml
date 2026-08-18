@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.gamma
     container_name: gamma-scanner
     ports:
-      - "8081:8081"
+      - "80:8081"
     environment:
       - ALPACA_API_KEY=${ALPACA_API_KEY:-PKOMKRLONHFRTJIPY3OTSRQYDP}
       - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-85eucWnKfY5DmBxCiWP3uTefYMbLdwn7D7fjTSpbNGx4}
@@ -17,11 +17,11 @@ services:
       - gamma_data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/api/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/api/last-scan', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s
 
 volumes:
   gamma_data:

@@ -438,7 +438,9 @@ def run_backtest():
         "trades": trades,
     }
     with open(OUTPUT_FILE, "w") as f:
-        json.dump(results, f, indent=2)
+        # numpy scalars (bool_/int_/float_) leak in from yfinance/ta and aren't JSON
+        # serializable by default; .item() converts them to native Python types.
+        json.dump(results, f, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     print(f"\n  Full results saved to: {OUTPUT_FILE}")
 
 
