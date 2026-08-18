@@ -211,6 +211,82 @@ def get_stock_price(ticker):
         return None
 
 
+def reconcile_positions(user_id, key, secret, is_paper):
+    """
+    Add any Alpaca option positions that aren't tracked in trades.json.
+    Prevents orphan positions from going unmonitored (no trailing stop).
+    """
+    import requests as _req
+    import re as _re
+    from user_manager import load_user_trades, save_user_trades
+    
+    if not key:
+        return
+    
+    base = "https://paper-api.alpaca.markets" if is_paper else "https://api.alpaca.markets"
+    headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+    resp = _req.get(f"{base}/v2/positions", headers=headers, timeout=5)
+    if resp.status_code != 200:
+        return
+    positions = resp.json()
+    
+    trades = load_user_trades(user_id)
+    
+    # Build set of tracked (ticker, strike, exp, direction) for open trades
+    tracked = set()
+    for t in trades:
+        if t.get("status") == "open":
+            k = (t["ticker"], float(t["option_strike"]), t.get("option_exp",""), t.get("direction"))
+            tracked.add(k)
+    
+    added = 0
+    for p in positions:
+        if p.get("asset_class") != "us_option":
+            continue
+        sym = p["symbol"]
+        m = _re.match(r'^([A-Z]+)(\d{6})([CP])(\d{8})$', sym)
+        if not m:
+            continue
+        ticker = m.group(1)
+        date_str = m.group(2)
+        direction = "CALL" if m.group(3) == "C" else "PUT"
+        strike = int(m.group(4)) / 1000
+        exp = f"20{date_str[:2]}-{date_str[2:4]}-{date_str[4:6]}"
+        qty = int(p["qty"])
+        entry = float(p["avg_entry_price"])
+        
+        k = (ticker, strike, exp, direction)
+        if k in tracked:
+            continue  # already tracked
+        
+        # Orphan — add it so it gets monitored
+        from datetime import datetime as _dt
+        trades.append({
+            "ticker": ticker,
+            "direction": direction,
+            "setup": "reconciled",
+            "score": 0,
+            "entry_price": 0,
+            "entry_date": _dt.utcnow().strftime("%Y-%m-%d"),
+            "entry_time": _dt.utcnow().isoformat(),
+            "option_strike": strike,
+            "option_exp": exp,
+            "option_cost": entry,
+            "cost_per_contract": round(entry * 100, 2),
+            "status": "open",
+            "pnl": 0,
+            "current_pnl": 0.0,
+            "num_contracts": qty,
+            "execution": "live",
+            "note": "Auto-reconciled from Alpaca",
+        })
+        added += 1
+        log(f"  {user_id}: RECONCILED orphan {ticker} {direction} ${strike} x{qty} @ ${entry:.2f}")
+    
+    if added:
+        save_user_trades(user_id, trades)
+
+
 def check_all_users():
     """Check positions for every active user."""
     try:
@@ -234,6 +310,12 @@ def check_all_users():
                 _ba.HEADERS = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
                 _ba.HEADERS_JSON = {**_ba.HEADERS, "Content-Type": "application/json"}
                 _ba.BASE_URL = _ba.PAPER_BASE if is_paper_user(user_id) else _ba.LIVE_BASE
+            
+            # Reconcile: add any Alpaca positions missing from trades.json
+            try:
+                reconcile_positions(user_id, key, secret, is_paper_user(user_id))
+            except Exception as _re:
+                log(f"  {user_id}: reconcile error: {_re}", "WARN")
             
             trades = load_user_trades(user_id)
             if not trades:
