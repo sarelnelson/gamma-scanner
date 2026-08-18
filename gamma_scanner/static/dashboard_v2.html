@@ -495,11 +495,22 @@ async function loadScannerData(){
     // Picks (recent entries)
     const picks=(await picksR.json());
     const loosePicks=picks.loose||[];
+    if(!ACCOUNTS.length){ await loadAccounts(); }
     document.getElementById('picks-count').textContent=loosePicks.length;
     document.getElementById('picks-list').innerHTML=loosePicks.length?loosePicks.map(p=>{
-      return `<div class="pos-item"><div class="pos-left">
-        <div class="pos-ticker">${p.ticker||'?'} <span style="font-size:11px;color:var(--muted)">${p.direction||'CALL'} $${p.option_strike||''}</span></div>
-        <div class="pos-detail">Score: ${p.score||'?'} | Entry $${p.option_cost?.toFixed(2)||'?'} | ${p.entry_date||''}</div>
+      const opt=p.option||{};
+      const strike=(opt.strike!=null?opt.strike:(p.option_strike!=null?p.option_strike:''));
+      const exp=(opt.expiration||p.option_exp||'');
+      const estCost=(opt.cost_per_contract!=null)?Math.round(opt.cost_per_contract):(opt.ask!=null?Math.round(opt.ask*100):null);
+      const costStr=(estCost!=null)?('$'+estCost):'?';
+      const acctOpts=ACCOUNTS.map(a=>`<option value="${a.id}">${a.name}${a.paper?' (paper)':''}</option>`).join('');
+      return `<div class="pos-item"><div class="pos-left" style="flex:1;">
+        <div class="pos-ticker">${p.ticker||'?'} <span style="font-size:11px;color:var(--muted)">${p.direction||'CALL'} $${strike} ${exp}</span></div>
+        <div class="pos-detail">Score: ${p.score||'?'} | Est cost ${costStr}</div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+          <select id="acct-${p.ticker}" style="padding:5px 8px;border-radius:6px;border:1px solid var(--line,#ccd);background:#fff;font-size:12px;color:var(--text,#123);">${acctOpts}</select>
+          <button onclick="buyPick('${p.ticker}')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--green);background:var(--green);color:#fff;font-size:12px;cursor:pointer;font-weight:600;">Buy</button>
+        </div>
       </div></div>`;
     }).join(''):'<div style="color:var(--muted);padding:12px 0;font-size:13px;">No picks today</div>';
     
@@ -520,6 +531,25 @@ async function closePosition(ticker, usr){
   const r=await fetch('/api/close/'+ticker+'?user='+usr, {method:'POST'});
   const d=await r.json();
   alert(d.message || d.error || JSON.stringify(d));
+  load();
+}
+
+let ACCOUNTS=[];
+async function loadAccounts(){
+  try{ const r=await fetch('/api/users'); ACCOUNTS=(await r.json()).users||[]; }
+  catch(e){ ACCOUNTS=[{id:'scanner',name:'Scanner',paper:true},{id:'sarel',name:'Sarel',paper:false},{id:'yonah',name:'Yonah',paper:false}]; }
+}
+async function buyPick(ticker){
+  const sel=document.getElementById('acct-'+ticker);
+  const acct=sel?sel.value:'sarel';
+  const label=sel?sel.options[sel.selectedIndex].text:acct;
+  if(!confirm('Buy '+ticker+' on '+label+'?')) return;
+  try{
+    const r=await fetch('/api/picks/buy/'+encodeURIComponent(ticker)+'?user='+encodeURIComponent(acct),{method:'POST'});
+    const d=await r.json();
+    alert(d.message || d.error || JSON.stringify(d));
+  }catch(e){ alert('Buy failed: '+e); }
+  if(scannerPageVisible) loadScannerData();
   load();
 }
 

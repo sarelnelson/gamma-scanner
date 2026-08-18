@@ -69,6 +69,29 @@ def save_user_json(user_id, filename, data):
     os.replace(tmp, path)
 
 
+def _apply_broker_creds(user_id):
+    """Point broker_alpaca at THIS user's Alpaca account before placing/closing an order.
+
+    The server process's broker_alpaca globals default to the paper account, so any
+    manual order (close/buy) must set the per-user creds first or it hits the wrong
+    account. Mirrors the override the scanner does before auto-entries. Returns True
+    if creds were applied.
+    """
+    from user_manager import get_user_alpaca_keys, is_paper_user
+    import broker_alpaca as _ba
+    from broker_alpaca import PAPER_BASE, LIVE_BASE
+    key, secret = get_user_alpaca_keys(user_id)
+    if not key or not secret:
+        return False
+    _ba.API_KEY = key
+    _ba.API_SECRET = secret
+    _ba.HEADERS = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+    _ba.HEADERS_JSON = {**_ba.HEADERS, "Content-Type": "application/json"}
+    _ba.BASE_URL = PAPER_BASE if is_paper_user(user_id) else LIVE_BASE
+    _ba.PAPER_MODE = is_paper_user(user_id)
+    return True
+
+
 # === AUTH ENDPOINTS ===
 
 @app.post("/api/auth/login")
@@ -157,6 +180,109 @@ def get_picks():
     return {
         "strict": load_json("picks_strict.json"),
         "loose": load_json("picks_loose.json"),
+    }
+
+
+@app.get("/api/users")
+def list_users():
+    """Accounts available for manual actions (used to populate the Buy account selector)."""
+    users = load_users().get("users", {})
+    return {"users": [
+        {"id": uid, "name": u.get("name", uid), "paper": bool(u.get("paper", False))}
+        for uid, u in users.items()
+    ]}
+
+
+@app.post("/api/picks/buy/{ticker}")
+def buy_from_picks(ticker: str, user: str = Query(...)):
+    """Manually buy one of today's picks on a chosen account, if that account can afford it.
+
+    Funds are checked against the account's available balance, so an attempt on an
+    underfunded account (e.g. yonah) fails cleanly without placing an order.
+    """
+    ticker = ticker.upper()
+    users = load_users().get("users", {})
+    if user not in users:
+        return {"success": False, "error": f"Unknown account '{user}'"}
+
+    from market_clock import is_market_open
+    if not is_market_open():
+        return {"success": False, "error": "Market is closed"}
+
+    # Locate the pick (loose first, then strict)
+    picks = (load_json("picks_loose.json") or []) + (load_json("picks_strict.json") or [])
+    pick = next((p for p in picks if str(p.get("ticker", "")).upper() == ticker), None)
+    if not pick:
+        return {"success": False, "error": f"{ticker} is not in today's picks"}
+
+    opt = pick.get("option") or {}
+    strike = opt.get("strike", pick.get("option_strike"))
+    exp = opt.get("expiration", pick.get("option_exp"))
+    direction = pick.get("direction", "CALL")
+    if not strike or not exp:
+        return {"success": False, "error": f"{ticker} pick has no option contract"}
+
+    # Point the broker at the chosen account BEFORE quoting/ordering
+    if not _apply_broker_creds(user):
+        return {"success": False, "error": f"No Alpaca keys configured for '{user}'"}
+
+    from user_manager import get_user_balance, get_user_deployed, load_user_trades, save_user_trades, is_paper_user
+    from broker_alpaca import get_option_quote, build_occ_symbol, buy_to_open
+
+    # Fresh quote for a real cost estimate
+    symbol = build_occ_symbol(ticker, exp, direction, strike)
+    quote = get_option_quote(symbol)
+    if not quote or quote.get("ask", 0) <= 0:
+        return {"success": False, "error": "Can't get a current option price (no market right now)"}
+    ask = quote["ask"]
+    cost = round(ask * 100, 2)
+
+    # Funds check — this is what makes an underfunded account fail cleanly
+    available = get_user_balance(user) - get_user_deployed(user)
+    acct_name = users[user].get("name", user)
+    if cost > available:
+        return {"success": False, "error": f"{acct_name} can't afford this: need ${cost:.0f}, have ${available:.0f} available"}
+
+    # Guard against an exact-duplicate open contract (avoids accidental double-buys)
+    trades = load_user_trades(user)
+    for t in trades:
+        if (t.get("status") == "open" and t.get("ticker") == ticker
+                and t.get("option_strike") == strike and t.get("option_exp") == exp):
+            return {"success": False, "error": f"{acct_name} already holds {ticker} ${strike} {exp}"}
+
+    # Place the order on the selected account
+    result = buy_to_open(ticker, exp, direction, strike)
+    if not result.get("success"):
+        return {"success": False, "error": f"Order failed: {result.get('status')}"}
+
+    fill = result["fill_price"]
+    trade = {
+        "ticker": ticker,
+        "direction": direction,
+        "setup": pick.get("setup", "manual_pick"),
+        "score": pick.get("score", 0),
+        "entry_price": pick.get("price", 0),
+        "entry_date": datetime.utcnow().strftime("%Y-%m-%d"),
+        "entry_time": datetime.utcnow().isoformat(),
+        "option_strike": strike,
+        "option_exp": exp,
+        "option_cost": round(fill, 2),
+        "cost_per_contract": round(fill * 100, 2),
+        "status": "open",
+        "pnl": 0,
+        "current_pnl": 0.0,
+        "order_id": result.get("order_id"),
+        "execution": "paper" if is_paper_user(user) else "live",
+        "manual_entry": True,
+    }
+    trades.append(trade)
+    save_user_trades(user, trades)
+    return {
+        "success": True,
+        "message": f"Bought {ticker} {direction} ${strike} for {acct_name} @ ${fill:.2f} (${round(fill*100):.0f})",
+        "account": user,
+        "fill": fill,
+        "cost": round(fill * 100, 2),
     }
 
 
@@ -573,6 +699,7 @@ def get_status(user: str = Query(default="sarel")):
 def close_position(ticker: str, user: str = Query(default="sarel")):
     """Manually close an open position for a specific user."""
     ticker = ticker.upper()
+    _apply_broker_creds(user)  # ensure the sell hits THIS user's account (live vs paper)
     from user_manager import load_user_trades, save_user_trades
     trades = load_user_trades(user)
     
@@ -670,6 +797,7 @@ def close_position(ticker: str, user: str = Query(default="sarel")):
 @app.post("/api/close-all")
 def close_all_positions(user: str = Query(default="sarel")):
     """Manually close ALL open positions for a user."""
+    _apply_broker_creds(user)  # ensure sells hit THIS user's account (live vs paper)
     from user_manager import load_user_trades, save_user_trades
     trades = load_user_trades(user)
     from broker_alpaca import sell_to_close, find_contract, PAPER_MODE
@@ -830,6 +958,7 @@ def get_queue(user: str = Query(default="sarel")):
 def buy_from_queue(ticker: str, user: str = Query(default="sarel")):
     """Manually buy a queued trade."""
     ticker = ticker.upper()
+    _apply_broker_creds(user)  # ensure the buy hits THIS user's account (live vs paper)
     from trade_queue import load_queue, save_queue
     from user_manager import load_user_trades, save_user_trades, get_user_balance, get_user_deployed
     from broker_alpaca import get_option_quote
@@ -894,7 +1023,8 @@ def buy_from_queue(ticker: str, user: str = Query(default="sarel")):
         trade["option_cost"] = result["fill_price"]
         trade["cost_per_contract"] = round(result["fill_price"] * 100, 2)
         trade["order_id"] = result["order_id"]
-        trade["execution"] = "live"
+        from user_manager import is_paper_user
+        trade["execution"] = "paper" if is_paper_user(user) else "live"
     else:
         trade["execution"] = "paper"
     
