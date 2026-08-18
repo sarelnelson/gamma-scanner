@@ -153,6 +153,125 @@ def _notify_rotation(old_ticker, old_pnl, new_ticker, direction, strike, score):
 
 # === STEP 1: STOCK SCREEN ===
 
+def evaluate_ticker(ticker, df):
+    """Evaluate one ticker's ~90-day df and return a candidate dict, or None if it is
+    not a valid setup right now. Single source of truth shared by screen_stocks() (entry
+    scanning) and score_ticker_now() (re-scoring an open position), so an entry score and
+    a current score are computed identically."""
+    try:
+        if df is None or len(df) < 50:
+            return None
+
+        close = df["Close"]
+        volume = df["Volume"]
+        price = float(close.iloc[-1])
+
+        # Liquidity filter
+        avg_vol = volume.tail(20).mean()
+        if avg_vol < 2_000_000:
+            return None
+
+        # Technical indicators
+        rsi = float(ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1])
+        sma50 = float(close.tail(50).mean())
+        sma50_20_ago = float(close.tail(50).iloc[:20].mean())
+        week_low = float(close.tail(252).min() if len(close) >= 252 else close.min())
+        pct_from_low = (price - week_low) / week_low * 100
+        move_10d = (price - float(close.iloc[-11])) / float(close.iloc[-11]) * 100 if len(close) > 11 else 0
+        pct_above_sma20 = (price - float(close.tail(20).mean())) / float(close.tail(20).mean()) * 100
+        today_green = float(close.iloc[-1]) > float(df["Open"].iloc[-1])
+        today_red = float(close.iloc[-1]) < float(df["Open"].iloc[-1])
+        vol_ratio = float(volume.iloc[-1] / avg_vol) if avg_vol > 0 else 1
+        atr = float((df["High"].tail(14) - df["Low"].tail(14)).mean())
+        atr_pct = atr / price * 100
+
+        # ATR filter — want stocks that move
+        if atr_pct < 2:
+            return None
+
+        # === TREND FILTER ===
+        sma50_rising = sma50 > sma50_20_ago
+        was_above_50sma_recently = any(close.tail(20) > sma50)
+        in_uptrend = sma50_rising or was_above_50sma_recently
+
+        # === RSI CHECK ===
+        rsi_oversold = rsi < 40
+
+        # === VOLUME FILTER ===
+        vol_floor = vol_ratio >= 0.5
+        recent_vol_spike = any(volume.tail(5) > avg_vol * 1.3)
+        has_volume = vol_floor or recent_vol_spike
+        if rsi < 35:
+            has_volume = True  # deeply oversold bypasses volume check
+
+        # === BOUNCE CONDITIONS ===
+        bounce_conditions = sum([
+            pct_from_low < 10,
+            rsi < 35,
+            today_green,
+            recent_vol_spike,
+        ])
+        if in_uptrend and rsi_oversold and has_volume and bounce_conditions >= 2:
+            # === QUALITY SCORE ===
+            quality = 0
+            if avg_vol >= 50_000_000: quality += 20
+            elif avg_vol >= 20_000_000: quality += 15
+            elif avg_vol >= 10_000_000: quality += 10
+            elif avg_vol >= 5_000_000: quality += 5
+
+            move_5d = (price - float(close.iloc[-6])) / float(close.iloc[-6]) * 100 if len(close) > 6 else 0
+            if move_5d <= -8: quality += 15  # sharp drop
+            elif move_5d <= -5: quality += 10
+            elif move_5d <= -3: quality += 5
+
+            pct_below_sma50 = (sma50 - price) / sma50 * 100
+            if 2 <= pct_below_sma50 <= 8: quality += 10  # healthy dip
+            elif pct_below_sma50 < 2: quality += 5  # barely dipped
+
+            try:
+                rsi_series = ta.momentum.RSIIndicator(close, window=14).rsi()
+                past_oversold = rsi_series[rsi_series < 35]
+                if len(past_oversold) >= 2:
+                    quality += 10  # has been oversold before and survived
+            except:
+                pass
+
+            if sma50_rising: quality += 5
+
+            return {
+                "ticker": ticker,
+                "setup": "oversold_bounce",
+                "direction": "CALL",
+                "price": round(price, 2),
+                "rsi": round(rsi, 1),
+                "pct_from_52w_low": round(pct_from_low, 1),
+                "vol_ratio": round(vol_ratio, 1),
+                "atr_pct": round(atr_pct, 1),
+                "move_10d": round(move_10d, 1),
+                "sma50_rising": sma50_rising,
+                "recent_vol_spike": bool(recent_vol_spike),
+                "quality": quality,
+            }
+
+        # === MEAN REVERSION SHORT ===
+        elif move_10d > 25 and today_red and pct_above_sma20 > 20:
+            return {
+                "ticker": ticker,
+                "setup": "mean_reversion_short",
+                "direction": "PUT",
+                "price": round(price, 2),
+                "rsi": round(rsi, 1),
+                "move_10d": round(move_10d, 1),
+                "pct_above_sma20": round(pct_above_sma20, 1),
+                "vol_ratio": round(vol_ratio, 1),
+                "atr_pct": round(atr_pct, 1),
+                "today_red": today_red,
+            }
+        return None
+    except Exception:
+        return None
+
+
 def screen_stocks():
     """
     Two-stage screen for oversold bounce candidates.
@@ -222,132 +341,9 @@ def screen_stocks():
                 deep_bars[ticker] = df
     
     for ticker in pre_filtered:
-        try:
-            df = deep_bars.get(ticker)
-            if df is None or len(df) < 50:
-                continue
-
-            close = df["Close"]
-            volume = df["Volume"]
-            price = float(close.iloc[-1])
-
-            # Liquidity filter
-            avg_vol = volume.tail(20).mean()
-            if avg_vol < 2_000_000:
-                continue
-
-            # Technical indicators
-            rsi = float(ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1])
-            sma50 = float(close.tail(50).mean())
-            sma50_20_ago = float(close.tail(50).iloc[:20].mean())
-            week_low = float(close.tail(252).min() if len(close) >= 252 else close.min())
-            pct_from_low = (price - week_low) / week_low * 100
-            move_10d = (price - float(close.iloc[-11])) / float(close.iloc[-11]) * 100 if len(close) > 11 else 0
-            pct_above_sma20 = (price - float(close.tail(20).mean())) / float(close.tail(20).mean()) * 100
-            today_green = float(close.iloc[-1]) > float(df["Open"].iloc[-1])
-            today_red = float(close.iloc[-1]) < float(df["Open"].iloc[-1])
-            vol_ratio = float(volume.iloc[-1] / avg_vol) if avg_vol > 0 else 1
-            atr = float((df["High"].tail(14) - df["Low"].tail(14)).mean())
-            atr_pct = atr / price * 100
-
-            # ATR filter — want stocks that move
-            if atr_pct < 2:
-                continue
-
-            # === TREND FILTER ===
-            sma50_rising = sma50 > sma50_20_ago
-            was_above_50sma_recently = any(close.tail(20) > sma50)
-            in_uptrend = sma50_rising or was_above_50sma_recently
-
-            # === RSI CHECK ===
-            rsi_oversold = rsi < 40
-
-            # === VOLUME FILTER ===
-            vol_floor = vol_ratio >= 0.5
-            recent_vol_spike = any(volume.tail(5) > avg_vol * 1.3)
-            has_volume = vol_floor or recent_vol_spike
-            if rsi < 35:
-                has_volume = True  # deeply oversold bypasses volume check
-
-            # === BOUNCE CONDITIONS ===
-            bounce_conditions = sum([
-                pct_from_low < 10,
-                rsi < 35,
-                today_green,
-                recent_vol_spike,
-            ])
-            if in_uptrend and rsi_oversold and has_volume and bounce_conditions >= 2:
-                # === QUALITY SCORE ===
-                # Measures how likely this stock is to bounce HARD (not just pass filters)
-                quality = 0
-                
-                # 1. Volume strength (higher avg volume = institutional, stronger bounces)
-                #    2M = baseline (0pts), 10M = good (+10), 50M+ = excellent (+20)
-                if avg_vol >= 50_000_000: quality += 20
-                elif avg_vol >= 20_000_000: quality += 15
-                elif avg_vol >= 10_000_000: quality += 10
-                elif avg_vol >= 5_000_000: quality += 5
-                # below 5M = 0 bonus (small cap, weaker bounces)
-                
-                # 2. Selloff speed (sharp drops bounce harder than slow grinds)
-                #    -10% in 5 days = sharp, -3% in 10 days = slow grind
-                move_5d = (price - float(close.iloc[-6])) / float(close.iloc[-6]) * 100 if len(close) > 6 else 0
-                if move_5d <= -8: quality += 15  # sharp drop
-                elif move_5d <= -5: quality += 10
-                elif move_5d <= -3: quality += 5
-                # slow grind = 0 (less likely to snap back)
-                
-                # 3. Distance from 50-SMA (mild dip = better, extreme = might be broken)
-                pct_below_sma50 = (sma50 - price) / sma50 * 100
-                if 2 <= pct_below_sma50 <= 8: quality += 10  # healthy dip
-                elif pct_below_sma50 < 2: quality += 5  # barely dipped
-                # >8% below = 0 (might be structurally broken)
-                
-                # 4. Bounce history (has this stock bounced from oversold before?)
-                #    Check if RSI went <35 and then price was higher 10 days later in recent history
-                try:
-                    rsi_series = ta.momentum.RSIIndicator(close, window=14).rsi()
-                    past_oversold = rsi_series[rsi_series < 35]
-                    if len(past_oversold) >= 2:
-                        quality += 10  # has been oversold before and survived
-                except:
-                    pass
-                
-                # 5. SMA50 trending strongly (rising SMA = stronger support)
-                if sma50_rising: quality += 5
-                
-                candidates.append({
-                    "ticker": ticker,
-                    "setup": "oversold_bounce",
-                    "direction": "CALL",
-                    "price": round(price, 2),
-                    "rsi": round(rsi, 1),
-                    "pct_from_52w_low": round(pct_from_low, 1),
-                    "vol_ratio": round(vol_ratio, 1),
-                    "atr_pct": round(atr_pct, 1),
-                    "move_10d": round(move_10d, 1),
-                    "sma50_rising": sma50_rising,
-                    "recent_vol_spike": bool(recent_vol_spike),
-                    "quality": quality,
-                })
-
-            # === MEAN REVERSION SHORT ===
-            elif move_10d > 25 and today_red and pct_above_sma20 > 20:
-                candidates.append({
-                    "ticker": ticker,
-                    "setup": "mean_reversion_short",
-                    "direction": "PUT",
-                    "price": round(price, 2),
-                    "rsi": round(rsi, 1),
-                    "move_10d": round(move_10d, 1),
-                    "pct_above_sma20": round(pct_above_sma20, 1),
-                    "vol_ratio": round(vol_ratio, 1),
-                    "atr_pct": round(atr_pct, 1),
-                    "today_red": today_red,
-                })
-
-        except:
-            continue
+        cand = evaluate_ticker(ticker, deep_bars.get(ticker))
+        if cand:
+            candidates.append(cand)
 
     log(f"  Found {len(candidates)} candidates")
     # Sort by quality score — best bounce candidates first
@@ -569,6 +565,45 @@ ENTRY_SLIPPAGE = 0.02             # $0.02 above ask for realistic fill on market
 NO_DUPLICATE_TICKERS = False       # Allow re-entry if signal persists across days
 AVOID_FIRST_MINUTES = 15         # Don't enter in first 15 min (9:30-9:45 volatility)
 MIN_SCORE_TO_ROTATE = 60         # New pick must score at least this to displace a loser
+
+def score_tickers_now(tickers):
+    """Batch re-score a set of tickers as if the scanner saw them right now (definition A).
+    Uses the same evaluate_ticker + score_and_select_options path as entry scoring so scores
+    are directly comparable to stored entry scores. One bulk fetch + one scoring pass.
+    Returns {ticker: {"eligible": bool, "score": int|None, "setup": str|None, "reason": str}}."""
+    tickers = list(dict.fromkeys(tickers))  # dedupe, preserve order
+    result = {t: {"eligible": False, "score": None, "setup": None, "reason": "not a setup"} for t in tickers}
+    try:
+        if USE_ALPACA_DATA:
+            from data_alpaca import get_bulk_daily_bars
+            bars = get_bulk_daily_bars(tickers, days=90)
+        else:
+            bars = {t: get_stock_history(t, days=90) for t in tickers}
+        cands = []
+        for t in tickers:
+            c = evaluate_ticker(t, bars.get(t))
+            if c:
+                cands.append(c)
+        if cands:
+            # score_and_select_options sets c["score"] in place for candidates that have a
+            # tradeable 14-28 DTE option; we read that raw score (not the threshold-filtered
+            # return value) so a still-valid-but-low-score setup still reports a number.
+            score_and_select_options(cands)
+            for c in cands:
+                t = c["ticker"]
+                if "score" in c:
+                    result[t] = {"eligible": True, "score": c["score"], "setup": c.get("setup"), "reason": "ok"}
+                else:
+                    result[t] = {"eligible": False, "score": None, "setup": c.get("setup"), "reason": "no tradeable option"}
+        return result
+    except Exception:
+        return result
+
+
+def score_ticker_now(ticker):
+    """Single-ticker convenience wrapper around score_tickers_now (definition A re-score)."""
+    return score_tickers_now([ticker]).get(ticker, {"eligible": False, "score": None, "setup": None, "reason": "error"})
+
 
 def get_account_balance():
     """Calculate current account balance: cash basis + realized P&L.

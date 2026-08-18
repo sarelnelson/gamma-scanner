@@ -553,6 +553,20 @@ async function buyPick(ticker){
   load();
 }
 
+async function loadRescores(usr){
+  try{
+    const r=await fetch('/api/rescore?user='+usr);
+    const d=await r.json();
+    const scores=(d&&d.scores)||{};
+    document.querySelectorAll('.cur-score').forEach(el=>{
+      const tk=el.getAttribute('data-ticker');
+      const info=scores[tk];
+      if(info && info.score!=null){ el.textContent=info.score; el.style.color='var(--text,inherit)'; }
+      else { el.textContent='no setup'; el.style.color='var(--muted)'; el.title=(info&&info.reason)||'not a current setup'; }
+    });
+  }catch(e){ document.querySelectorAll('.cur-score').forEach(el=>{el.textContent='?';}); }
+}
+
 function toggleExpand(id){
   const el=document.getElementById(id);
   if(el)el.classList.toggle('open');
@@ -648,7 +662,7 @@ async function load(){
         (hw?'<div class="detail-row"><span class="detail-label">High Water</span><span class="detail-value" style="color:var(--green)">+'+hw.toFixed(0)+'%</span></div>':'')+ 
         (floor?'<div class="detail-row"><span class="detail-label">Trail Floor</span><span class="detail-value">+'+floor+'%</span></div>':
                '<div class="detail-row"><span class="detail-label">Trail Activation</span><span class="detail-value">Need +'+(hw?(100-hw).toFixed(0):'100')+'% more</span></div>')+
-        '<div class="detail-row"><span class="detail-label">Score</span><span class="detail-value">'+(t.score||'—')+'</span></div>'+
+        '<div class="detail-row"><span class="detail-label">Score (entry / now)</span><span class="detail-value">'+(t.score||'—')+' / <span class="cur-score" data-ticker="'+(t.ticker||'')+'">…</span></span></div>'+
         '<div class="detail-row"><span class="detail-label">Stock Price</span><span class="detail-value">'+(t.current_price?'$'+t.current_price.toFixed(2):'—')+'</span></div>'+
         '<div style="display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.06);">'+
         '<button onclick="event.stopPropagation();addContract(\''+t.ticker+'\',\''+user+'\')" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--green);background:transparent;color:var(--green);font-size:12px;font-weight:600;cursor:pointer;">+ Buy More</button>'+
@@ -656,6 +670,7 @@ async function load(){
         '</div>'+
         '</div></div>';
     }).join(''):'<div style="color:var(--muted);padding:16px 0;font-size:13px;">No open positions</div>';
+    loadRescores(user);
 
     // Closed
     cl.sort((a,b)=>(b.exit_date||'').localeCompare(a.exit_date||''));

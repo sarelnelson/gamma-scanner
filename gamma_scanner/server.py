@@ -303,6 +303,22 @@ def get_trades(user: str = Query(default="sarel")):
     }
 
 
+@app.get("/api/rescore")
+def rescore_positions(user: str = Query(default="sarel")):
+    """Current 'would-pick-today' score (definition A) for each open position's ticker.
+
+    Re-runs the scanner's own evaluate + option-scoring on today's data, so the number is
+    comparable to the stored entry score. 'no setup' means the scanner would not pick that
+    ticker right now (e.g. it bounced out of oversold) or there's no tradeable option.
+    """
+    from user_manager import load_user_trades
+    from scanner_loose import score_tickers_now
+    trades = load_user_trades(user)
+    tickers = [t.get("ticker") for t in trades if t.get("status") == "open" and t.get("ticker")]
+    scored = score_tickers_now(tickers)
+    return {"scores": {tk: {"score": v.get("score"), "reason": v.get("reason")} for tk, v in scored.items()}}
+
+
 @app.get("/api/performance")
 def get_performance(user: str = Query(default="sarel")):
     """Performance stats for a specific user."""
