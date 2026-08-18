@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime artifacts (managed at runtime, not source)
+*.log
+.pids/
+*.pid
+
+# Runtime data — lives on the /app/data Docker volume, not in source
+gamma_scanner/user_*/
+gamma_scanner/candidates.json
+gamma_scanner/last_scan.json
+gamma_scanner/scan.log
+gamma_scanner/position_history/
+gamma_scanner/*.tmp
+
+# Secrets / local env
+.env
+gamma-key.pem
