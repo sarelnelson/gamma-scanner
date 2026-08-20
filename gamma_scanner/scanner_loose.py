@@ -1068,8 +1068,12 @@ def screen_overbought():
     return candidates
 
 
-def run_scan():
-    """Full scan pipeline with seasonal mode."""
+def run_scan(record=False):
+    """Full scan pipeline with seasonal mode.
+
+    record=True (scheduled/auto scans only) logs every pick to pick_history + the gist.
+    Manual scans call run_scan() (record=False) and are not logged.
+    """
     mode = get_seasonal_mode()
     log("=" * 50)
     log(f"DAILY SCAN — MODE: {mode.upper()}")
@@ -1100,6 +1104,14 @@ def run_scan():
     if not picks:
         log("No picks scored above threshold")
         return []
+
+    # Record every pick this scan produced — scheduled/auto scans only.
+    if record:
+        try:
+            from pick_log import record_picks
+            record_picks(picks, mode="auto")
+        except Exception as _e:
+            log(f"pick_log error: {_e}", "WARN")
 
     # Step 3: Auto-enter for each active user (unless paused)
     from user_manager import get_active_users, is_user_paused, load_user_trades, save_user_trades, get_user_balance, get_user_deployed

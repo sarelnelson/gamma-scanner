@@ -901,7 +901,7 @@ def run_monitor():
                             import importlib, scanner_loose
                             importlib.reload(scanner_loose)
                             from scanner_loose import run_scan
-                            picks = run_scan()
+                            picks = run_scan(record=True)
                             # Update last_scan.json for dashboard
                             try:
                                 import json as _json
