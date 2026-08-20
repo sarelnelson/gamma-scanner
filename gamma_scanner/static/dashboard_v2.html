@@ -366,6 +366,33 @@ body {
     </div>
   </div>
 
+  <!-- Admin / Access Page (hidden by default) -->
+  <div id="admin-page" style="display:none;">
+    <div class="panel" style="margin:0 20px 16px;">
+      <div class="section-head">
+        <div class="section-title">Access Control</div>
+        <button onclick="hideAdminPage()" style="padding:6px 12px;border-radius:6px;border:1px solid var(--line,#30363d);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;">&larr; Back</button>
+      </div>
+      <div id="admin-status" style="font-size:13px;color:var(--text2);padding:6px 0;">Loading...</div>
+      <input type="password" id="admin-master" placeholder="Master password" style="width:100%;padding:12px;border-radius:8px;border:1px solid var(--line,#30363d);margin:8px 0;font-size:14px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="admin-hours" style="padding:11px;border-radius:8px;border:1px solid var(--line,#30363d);font-size:14px;">
+          <option value="1">1h</option>
+          <option value="3" selected>3h</option>
+          <option value="24">24h</option>
+        </select>
+        <button onclick="adminGate('open')" style="flex:1;padding:11px;border-radius:8px;border:1px solid var(--green);background:var(--green);color:#fff;font-weight:600;cursor:pointer;">Open</button>
+        <button onclick="adminGate('lock')" style="flex:1;padding:11px;border-radius:8px;border:1px solid var(--line,#30363d);background:transparent;color:var(--text2);cursor:pointer;">Lock</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="adminDevices()" style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--line,#30363d);background:transparent;color:var(--text2);cursor:pointer;">Devices</button>
+        <button onclick="adminRevokeAll()" style="flex:1;padding:10px;border-radius:8px;border:none;background:#c0392b;color:#fff;cursor:pointer;">Revoke all</button>
+      </div>
+      <div id="admin-devices" style="margin-top:10px;font-size:12px;color:var(--text2);"></div>
+      <div id="admin-msg" style="font-size:12px;color:var(--muted);margin-top:8px;"></div>
+    </div>
+  </div>
+
 </div>
 </div><!-- /frame -->
 
@@ -383,6 +410,7 @@ body {
     <div class="slide-item" onclick="doScan()">Run Scan</div>
     <div class="slide-item" onclick="doFund()">Fund Account</div>
     <div class="slide-item" onclick="doPause()">Pause Scanner</div>
+    <div class="slide-item" onclick="showAdminPage()">Admin / Access</div>
     <div class="slide-item" onclick="doLogout()">Log Out</div>
   </div>
 </div>
@@ -460,6 +488,69 @@ function showScannerPage(){
     mp.style.display='block';
     cp.style.display='block';
   }
+}
+
+function showAdminPage(){
+  closeMenu();
+  document.getElementById('positions').parentElement.style.display='none';
+  document.getElementById('closed-panel').style.display='none';
+  var sp=document.getElementById('scanner-page'); if(sp) sp.style.display='none';
+  document.getElementById('admin-page').style.display='block';
+  loadAdminStatus();
+}
+function hideAdminPage(){
+  document.getElementById('admin-page').style.display='none';
+  document.getElementById('positions').parentElement.style.display='block';
+  document.getElementById('closed-panel').style.display='block';
+  scannerPageVisible=false;
+}
+async function loadAdminStatus(){
+  try{
+    const d=await (await fetch('/api/gate/status')).json();
+    document.getElementById('admin-status').textContent = !d.enabled
+      ? 'Gate disabled (LOGIN_GATE_ENABLED is off)'
+      : (d.open ? ('\uD83D\uDD13 Open \u2014 ' + Math.round(d.seconds_remaining/60) + ' min left (new devices can join)')
+                : '\uD83D\uDD12 Locked \u2014 enrolled devices only');
+  }catch(e){}
+}
+async function adminGate(action){
+  const mp=document.getElementById('admin-master').value;
+  const msg=document.getElementById('admin-msg');
+  const body={password:mp};
+  if(action==='open') body.hours=parseFloat(document.getElementById('admin-hours').value);
+  try{
+    const d=await (await fetch('/api/gate/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    msg.textContent = d.success ? (d.open?('Gate OPEN \u2014 '+Math.round(d.seconds_remaining/60)+' min left'):'Gate LOCKED') : (d.error||'Failed');
+  }catch(e){ msg.textContent='Failed'; }
+  loadAdminStatus();
+}
+async function adminDevices(){
+  const mp=document.getElementById('admin-master').value;
+  const el=document.getElementById('admin-devices');
+  try{
+    const d=await (await fetch('/api/gate/devices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:mp})})).json();
+    if(!d.success){ el.textContent=d.error||'Failed'; return; }
+    if(!d.count){ el.textContent='No enrolled devices.'; return; }
+    el.innerHTML=d.devices.map(function(dev){
+      var seen=dev.last_seen?new Date(dev.last_seen*1000).toLocaleString():'?';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.08);">'
+        + '<span>'+(dev.label||'unknown')+'<br><span style="color:var(--muted);">last seen '+seen+'</span></span>'
+        + '<button onclick="adminRevoke(\''+dev.token+'\')" style="width:auto;padding:6px 10px;background:#c0392b;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">Revoke</button>'
+        + '</div>';
+    }).join('');
+  }catch(e){ el.textContent='Failed'; }
+}
+async function adminRevoke(token){
+  const mp=document.getElementById('admin-master').value;
+  await fetch('/api/gate/revoke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:mp,token:token})});
+  adminDevices();
+}
+async function adminRevokeAll(){
+  if(!confirm('Revoke ALL devices? Everyone (including you) will need to re-enroll.')) return;
+  const mp=document.getElementById('admin-master').value;
+  const d=await (await fetch('/api/gate/revoke-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:mp})})).json();
+  document.getElementById('admin-msg').textContent = d.success?('Revoked '+d.revoked+' device(s)'):(d.error||'Failed');
+  adminDevices();
 }
 
 async function loadScannerData(){
