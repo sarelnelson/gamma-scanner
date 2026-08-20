@@ -534,7 +534,7 @@ async function adminDevices(){
     el.innerHTML=d.devices.map(function(dev){
       var seen=dev.last_seen?new Date(dev.last_seen*1000).toLocaleString():'?';
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.08);">'
-        + '<span>'+(dev.label||'unknown')+'<br><span style="color:var(--muted);">last seen '+seen+'</span></span>'
+        + '<span><strong>'+(dev.device||'Unknown device')+'</strong> \u00b7 '+(dev.label||'?')+'<br><span style="color:var(--muted);">last seen '+seen+'</span></span>'
         + '<button onclick="adminRevoke(\''+dev.token+'\')" style="width:auto;padding:6px 10px;background:#c0392b;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">Revoke</button>'
         + '</div>';
     }).join('');

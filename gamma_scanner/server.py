@@ -150,7 +150,10 @@ def login(body: dict, request: Request):
     is_master = auth_gate.check_master_password(pw)
     is_dash = auth_gate.check_dashboard_password(pw)
     if is_master or (is_dash and auth_gate.gate_is_open()):
-        token = auth_gate.issue_token(label=(request.client.host if request.client else ""))
+        token = auth_gate.issue_token(
+            label=(request.client.host if request.client else ""),
+            user_agent=request.headers.get("user-agent", ""),
+        )
         response = JSONResponse({"success": True, "users": user_list, "admin": is_master})
         response.set_cookie(
             key=auth_gate.COOKIE_NAME, value=token,
@@ -228,7 +231,7 @@ def gate_devices_ep(body: dict):
     if not auth_gate.check_master_password(body.get("password", "")):
         return {"success": False, "error": "Master password required"}
     devices = [
-        {"token": tok, "label": (m.get("label") or "unknown"),
+        {"token": tok, "label": (m.get("label") or "unknown"), "device": (m.get("device") or "Unknown device"),
          "created": m.get("created"), "last_seen": m.get("last_seen")}
         for tok, m in auth_gate.list_tokens().items()
     ]

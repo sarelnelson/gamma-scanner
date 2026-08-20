@@ -128,7 +128,7 @@ async function loadDevices() {
     el.innerHTML = d.devices.map(function(dev) {
       var seen = dev.last_seen ? new Date(dev.last_seen * 1000).toLocaleString() : '?';
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #21262d;">'
-        + '<span>' + (dev.label || 'unknown') + '<br><span style="color:#586069;">last seen ' + seen + '</span></span>'
+        + '<span><strong>' + (dev.device || 'Unknown device') + '</strong> \u00b7 ' + (dev.label || '?') + '<br><span style="color:#586069;">last seen ' + seen + '</span></span>'
         + '<button onclick="revokeDevice(\'' + dev.token + '\')" style="width:auto;padding:6px 10px;background:#5a1d1d;font-size:11px;">Revoke</button>'
         + '</div>';
     }).join('');

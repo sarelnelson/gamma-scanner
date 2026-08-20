@@ -98,13 +98,47 @@ def _prune(wl):
     return {t: m for t, m in wl.items() if float(m.get("last_seen", 0) or 0) >= cutoff}
 
 
-def issue_token(label=""):
+def issue_token(label="", user_agent=""):
     wl = _prune(_load(WHITELIST_FILE, {}))
     token = _secrets.token_urlsafe(32)
     now = time.time()
-    wl[token] = {"created": now, "last_seen": now, "label": label}
+    wl[token] = {"created": now, "last_seen": now, "label": label,
+                 "ua": user_agent, "device": _device_from_ua(user_agent)}
     _save(WHITELIST_FILE, wl)
     return token
+
+
+def _device_from_ua(ua):
+    """Best-effort friendly device string from a User-Agent (no external deps)."""
+    u = (ua or "").lower()
+    if "iphone" in u:
+        os_ = "iPhone"
+    elif "ipad" in u:
+        os_ = "iPad"
+    elif "android" in u:
+        os_ = "Android"
+    elif "macintosh" in u or "mac os" in u:
+        os_ = "Mac"
+    elif "windows" in u:
+        os_ = "Windows"
+    elif "cros" in u:
+        os_ = "ChromeOS"
+    elif "linux" in u:
+        os_ = "Linux"
+    else:
+        os_ = "Unknown device"
+    # Order matters: Edge UA contains "chrome"; Chrome UA contains "safari".
+    if "edg/" in u:
+        br = "Edge"
+    elif "crios" in u or ("chrome" in u and "chromium" not in u):
+        br = "Chrome"
+    elif "firefox" in u or "fxios" in u:
+        br = "Firefox"
+    elif "safari" in u:
+        br = "Safari"
+    else:
+        br = ""
+    return os_ + (" \u00b7 " + br if br else "")
 
 
 def verify_token(token):
