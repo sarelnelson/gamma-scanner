@@ -63,6 +63,12 @@ document.getElementById('password').addEventListener('keypress', function(e) {
   if (e.key === 'Enter') checkPassword();
 });
 
+// If we already have access (valid whitelist cookie, or gate off), skip the form.
+// Uses a background request — never a blind redirect — so there's no login<->dashboard loop.
+fetch('/api/session').then(function(r) {
+  if (r.ok) window.location.href = '/dashboard';
+}).catch(function() {});
+
 async function checkPassword() {
   const pw = document.getElementById('password').value;
   const err = document.getElementById('error');

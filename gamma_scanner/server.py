@@ -192,6 +192,15 @@ def gate_status_ep():
     return {"enabled": auth_gate.gate_enabled(), **auth_gate.gate_status()}
 
 
+@app.get("/api/session")
+def session_check():
+    """Gated route: reaching it (200) means the request is already authorized — a valid
+    whitelist cookie, or the gate is off. The login page uses this to auto-forward
+    returning users to the dashboard without a blind redirect loop."""
+    import auth_gate
+    return {"ok": True, "gate_enabled": auth_gate.gate_enabled()}
+
+
 @app.post("/api/gate/open")
 def gate_open_ep(body: dict):
     import auth_gate
