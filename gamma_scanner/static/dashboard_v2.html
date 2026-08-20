@@ -393,6 +393,18 @@ body {
     </div>
   </div>
 
+  <!-- All Closed Trades Page (hidden by default) -->
+  <div id="allclosed-page" style="display:none;">
+    <div class="panel" style="margin:0 20px 16px;">
+      <div class="section-head">
+        <div class="section-title">All Closed Trades</div>
+        <button onclick="hideAllClosed()" style="padding:6px 12px;border-radius:6px;border:1px solid var(--line,#30363d);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;">&larr; Back</button>
+      </div>
+      <div id="allclosed-summary" style="font-size:13px;color:var(--text2);padding:6px 0;"></div>
+      <div id="allclosed-list"></div>
+    </div>
+  </div>
+
 </div>
 </div><!-- /frame -->
 
@@ -406,6 +418,7 @@ body {
     <div class="slide-item" id="mi-yonah" onclick="sw('yonah')">Yonah</div>
     <div class="slide-item" id="mi-puts" onclick="sw('puts')">Put Scanner</div>
     <div class="slide-item" id="mi-scaninfo" onclick="showScannerPage()">Scanner Info</div>
+    <div class="slide-item" onclick="showAllClosed()">All Closed Trades</div>
     <h4>Actions</h4>
     <div class="slide-item" onclick="doScan()">Run Scan</div>
     <div class="slide-item" onclick="doFund()">Fund Account</div>
@@ -665,6 +678,41 @@ function toggleExpand(id){
   if(el)el.classList.toggle('open');
 }
 
+function closedCardHTML(t){
+  const pnl=t.pnl||0;const color=pnl>0?'var(--green)':'var(--red)';
+  return '<div class="pos-item" style="border-left:3px solid '+color+';padding-left:12px;">'+
+    '<div class="pos-left"><div class="pos-ticker">'+(t.ticker||'?')+' <span style="font-size:11px;color:var(--muted)">'+(t.direction||'')+' $'+(t.option_strike||'')+'</span></div>'+
+    '<div class="pos-detail">'+(t.exit_date||'')+' | '+(t.exit_reason||'')+'</div></div>'+
+    '<div class="pos-right"><div class="pos-pnl '+(pnl>=0?'up':'down')+'">'+(pnl>=0?'+':'')+' $'+Math.abs(pnl).toFixed(0)+'</div>'+
+    '<div class="pos-pct">'+(t.pnl_pct?t.pnl_pct.toFixed(0)+'%':'—')+'</div></div></div>';
+}
+
+async function showAllClosed(){
+  if(typeof closeMenu==='function') closeMenu();
+  document.getElementById('positions').parentElement.style.display='none';
+  document.getElementById('closed-panel').style.display='none';
+  var sp=document.getElementById('scanner-page'); if(sp) sp.style.display='none';
+  var ap=document.getElementById('admin-page'); if(ap) ap.style.display='none';
+  document.getElementById('allclosed-page').style.display='block';
+  var el=document.getElementById('allclosed-list');
+  el.innerHTML='Loading...';
+  try{
+    const p=await (await fetch('/api/performance?user='+user)).json();
+    const trades=(p.loose||{}).trades||[];
+    const cl=trades.filter(x=>x.status==='closed'||x.status==='expired');
+    cl.sort((a,b)=>(b.exit_date||'').localeCompare(a.exit_date||''));
+    const wins=cl.filter(t=>(t.pnl||0)>0).length;
+    const total=cl.reduce((s,t)=>s+(t.pnl||0),0);
+    document.getElementById('allclosed-summary').textContent=cl.length+' closed \u00b7 '+wins+'W/'+(cl.length-wins)+'L \u00b7 realized '+(total>=0?'+':'-')+'$'+Math.abs(total).toFixed(0);
+    el.innerHTML=cl.length?cl.map(closedCardHTML).join(''):'<div style="color:var(--muted);padding:16px 0;font-size:13px;">No closed trades</div>';
+  }catch(e){ el.textContent='Failed to load'; }
+}
+function hideAllClosed(){
+  document.getElementById('allclosed-page').style.display='none';
+  document.getElementById('positions').parentElement.style.display='block';
+  document.getElementById('closed-panel').style.display='block';
+}
+
 async function load(){
   try{
     const[pR,dR,aR,spyR]=await Promise.all([
@@ -765,16 +813,13 @@ async function load(){
     }).join(''):'<div style="color:var(--muted);padding:16px 0;font-size:13px;">No open positions</div>';
     loadRescores(user);
 
-    // Closed
+    // Closed (recent 10, with a link to the full list)
     cl.sort((a,b)=>(b.exit_date||'').localeCompare(a.exit_date||''));
-    document.getElementById('closed').innerHTML=cl.length?cl.slice(0,10).map(t=>{
-      const pnl=t.pnl||0;const color=pnl>0?'var(--green)':'var(--red)';
-      return '<div class="pos-item" style="border-left:3px solid '+color+';padding-left:12px;">'+
-        '<div class="pos-left"><div class="pos-ticker">'+(t.ticker||'?')+' <span style="font-size:11px;color:var(--muted)">'+(t.direction||'')+' $'+(t.option_strike||'')+'</span></div>'+
-        '<div class="pos-detail">'+(t.exit_date||'')+' | '+(t.exit_reason||'')+'</div></div>'+
-        '<div class="pos-right"><div class="pos-pnl '+(pnl>=0?'up':'down')+'">'+(pnl>=0?'+':'')+' $'+Math.abs(pnl).toFixed(0)+'</div>'+
-        '<div class="pos-pct">'+(t.pnl_pct?t.pnl_pct.toFixed(0)+'%':'—')+'</div></div></div>';
-    }).join(''):'<div style="color:var(--muted);padding:16px 0;font-size:13px;">No closed trades</div>';
+    document.getElementById('closed').innerHTML=cl.length
+      ? cl.slice(0,10).map(closedCardHTML).join('') + (cl.length>10
+          ? '<div style="text-align:center;padding:12px 0 4px;"><a href="#" onclick="showAllClosed();return false;" style="color:var(--green);font-size:13px;text-decoration:none;">View all '+cl.length+' closed \u2192</a></div>'
+          : '')
+      : '<div style="color:var(--muted);padding:16px 0;font-size:13px;">No closed trades</div>';
 
   }catch(e){console.error(e);}
 }
