@@ -549,7 +549,7 @@ def score_and_select_options(candidates):
         pass
     
     log(f"  Market threshold: {min_score}")
-    top_picks = [s for s in scored if s["score"] >= min_score][:5]
+    top_picks = [s for s in scored if s["score"] >= min_score]  # no per-scan cap — capital is the only limit
 
     log(f"  Scored {len(scored)} candidates, {len(top_picks)} above {min_score}")
     return top_picks
@@ -558,8 +558,12 @@ def score_and_select_options(candidates):
 # === POSITION MANAGEMENT CONFIG ===
 ACCOUNT_BALANCE = 5000.00          # Starting paper account balance
 MAX_RISK_PER_TRADE_PCT = 2.0      # Max 2% of account per position ($100 on $5k)
-MAX_OPEN_POSITIONS = 20           # Max 20 positions at once
-MAX_DAILY_ENTRIES = 8             # Max new entries per day (including rotations)
+# Trade-count limits removed — CAPITAL (available balance / Alpaca buying power) is now
+# the only constraint on entries. Set effectively unlimited so existing cap checks never bind.
+# (The per-user capital gate + Alpaca buying-power failsafe + same-ticker/day dedup + spread
+# filter all remain as safety/quality rails.)
+MAX_OPEN_POSITIONS = 1_000_000    # effectively unlimited
+MAX_DAILY_ENTRIES = 1_000_000     # effectively unlimited
 MAX_TOTAL_EXPOSURE_PCT = 40.0     # Never deploy more than 40% of account at once
 ENTRY_SLIPPAGE = 0.02             # $0.02 above ask for realistic fill on market order
 NO_DUPLICATE_TICKERS = False       # Allow re-entry if signal persists across days
