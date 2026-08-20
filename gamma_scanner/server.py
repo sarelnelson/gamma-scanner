@@ -755,7 +755,7 @@ def trigger_scan(user: str = Query(default="sarel")):
         return {"error": "Market is closed", "triggered": False}
 
     from scanner_loose import run_scan
-    picks = run_scan()
+    picks = run_scan(auto_enter=False)  # manual scan: produce picks only, no auto-trades
     
     # Save scan metadata — read candidates from where scanner writes them
     candidates = load_json("candidates.json")

@@ -1072,11 +1072,13 @@ def screen_overbought():
     return candidates
 
 
-def run_scan(record=False):
+def run_scan(record=False, auto_enter=True):
     """Full scan pipeline with seasonal mode.
 
     record=True (scheduled/auto scans only) logs every pick to pick_history + the gist.
-    Manual scans call run_scan() (record=False) and are not logged.
+    auto_enter=True (scheduled scans) enters picks for funded users; manual scans call
+    run_scan(auto_enter=False) — they only produce picks (for the dashboard's Buy buttons),
+    never auto-trade.
     """
     mode = get_seasonal_mode()
     log("=" * 50)
@@ -1116,6 +1118,10 @@ def run_scan(record=False):
             record_picks(picks, mode="auto")
         except Exception as _e:
             log(f"pick_log error: {_e}", "WARN")
+
+    if not auto_enter:
+        log(f"Scan complete: {len(picks)} picks found (manual scan — no auto-entry)")
+        return picks
 
     # Step 3: Auto-enter for each active user (unless paused)
     from user_manager import get_active_users, is_user_paused, load_user_trades, save_user_trades, get_user_balance, get_user_deployed
