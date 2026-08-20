@@ -1,0 +1,3 @@
+livescanner.duckdns.org {
+	reverse_proxy gamma-scanner:8081
+}
