@@ -1072,6 +1072,40 @@ def screen_overbought():
     return candidates
 
 
+def record_study_picks():
+    """Log higher-priced (>$150) oversold/overbought setups the trading screen excludes,
+    for STUDY ONLY — these are never traded. Lets us gather forward data on whether
+    high-priced names actually bounce, before deciding to include them. Isolated from the
+    trading path, so it cannot cause any entries."""
+    try:
+        from data_alpaca import get_bulk_daily_bars
+        bars = get_bulk_daily_bars(SP500_SAMPLE, days=90) or {}
+    except Exception as e:
+        log(f"  study screen fetch error: {e}", "WARN")
+        return
+    study = []
+    for tk, df in bars.items():
+        try:
+            if df is None or len(df) < 50:
+                continue
+            price = float(df["Close"].iloc[-1])
+            if price <= 150:
+                continue  # traded band — handled by the main screen
+            c = evaluate_ticker(tk, df)
+            if c:
+                c["tradeable"] = False
+                study.append(c)
+        except Exception:
+            continue
+    if study:
+        try:
+            from pick_log import record_picks
+            record_picks(study, mode="study")
+            log(f"  Study picks logged (>$150, NOT traded): {len(study)}")
+        except Exception as e:
+            log(f"  study record error: {e}", "WARN")
+
+
 def run_scan(record=False, auto_enter=True):
     """Full scan pipeline with seasonal mode.
 
@@ -1139,6 +1173,14 @@ def run_scan(record=False, auto_enter=True):
         if not key:
             continue
         _enter_picks_for_user(picks, user_id)
+
+    # Study-only: log higher-priced (>$150) setups the trading screen excludes — scheduled
+    # scans only, never traded — for future analysis of the high-price tier.
+    if record:
+        try:
+            record_study_picks()
+        except Exception as _e:
+            log(f"study screen error: {_e}", "WARN")
 
     # Note: profit_monitor.py handles exit checks continuously during market hours.
     log(f"Scan complete: {len(picks)} picks found")

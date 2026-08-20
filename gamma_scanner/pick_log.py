@@ -50,6 +50,7 @@ def record_picks(picks, mode="auto"):
         hist.append({
             "scan_time": now,
             "scan_mode": mode,
+            "tradeable": p.get("tradeable", True),
             "ticker": p.get("ticker"),
             "direction": p.get("direction"),
             "setup": p.get("setup"),
