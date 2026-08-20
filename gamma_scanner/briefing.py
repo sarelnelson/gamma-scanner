@@ -36,7 +36,8 @@ def publish_briefing():
     try:
         briefing = generate_briefing()
         content = json.dumps(briefing, indent=2)
-        
+        closed_history = build_closed_history()
+
         resp = requests.patch(
             GIST_API,
             headers={
@@ -45,7 +46,8 @@ def publish_briefing():
             },
             json={
                 "files": {
-                    "gamma_briefing.json": {"content": content}
+                    "gamma_briefing.json": {"content": content},
+                    "gamma_closed_history.json": {"content": json.dumps(closed_history)},
                 }
             },
             timeout=10,
@@ -55,6 +57,25 @@ def publish_briefing():
             print(f"[BRIEFING] Gist update failed: {resp.status_code}")
     except Exception as e:
         print(f"[BRIEFING] Error: {e}")
+
+
+def build_closed_history() -> list:
+    """Full detail of EVERY closed trade across all users, mirrored to the gist as
+    gamma_closed_history.json — so later analysis/simulation has complete OUTCOME history.
+    (The briefing itself only keeps the last 7 days of closed detail.)"""
+    from user_manager import get_active_users, load_user_trades
+    out = []
+    for uid in get_active_users():
+        try:
+            for t in load_user_trades(uid):
+                if t.get("status") in ("closed", "expired"):
+                    rec = format_closed_trade(t)
+                    rec["user"] = uid
+                    out.append(rec)
+        except Exception:
+            continue
+    out.sort(key=lambda r: ((r.get("exit_date") or ""), (r.get("exit_time") or "")))
+    return out
 
 
 def generate_briefing() -> dict:
