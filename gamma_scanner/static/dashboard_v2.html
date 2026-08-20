@@ -533,8 +533,10 @@ async function adminDevices(){
     if(!d.count){ el.textContent='No enrolled devices.'; return; }
     el.innerHTML=d.devices.map(function(dev){
       var seen=dev.last_seen?new Date(dev.last_seen*1000).toLocaleString():'?';
+      var primary = dev.name || dev.device || 'Unknown device';
+      var secondary = (dev.name && dev.device ? dev.device + ' \u00b7 ' : '') + (dev.label||'?');
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.08);">'
-        + '<span><strong>'+(dev.device||'Unknown device')+'</strong> \u00b7 '+(dev.label||'?')+'<br><span style="color:var(--muted);">last seen '+seen+'</span></span>'
+        + '<span><strong>'+primary+'</strong><br><span style="color:var(--muted);">'+secondary+' \u00b7 last seen '+seen+'</span></span>'
         + '<button onclick="adminRevoke(\''+dev.token+'\')" style="width:auto;padding:6px 10px;background:#c0392b;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">Revoke</button>'
         + '</div>';
     }).join('');

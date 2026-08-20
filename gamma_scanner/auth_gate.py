@@ -98,12 +98,13 @@ def _prune(wl):
     return {t: m for t, m in wl.items() if float(m.get("last_seen", 0) or 0) >= cutoff}
 
 
-def issue_token(label="", user_agent=""):
+def issue_token(label="", user_agent="", name=""):
     wl = _prune(_load(WHITELIST_FILE, {}))
     token = _secrets.token_urlsafe(32)
     now = time.time()
     wl[token] = {"created": now, "last_seen": now, "label": label,
-                 "ua": user_agent, "device": _device_from_ua(user_agent)}
+                 "ua": user_agent, "device": _device_from_ua(user_agent),
+                 "name": (name or "").strip()[:60]}
     _save(WHITELIST_FILE, wl)
     return token
 

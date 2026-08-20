@@ -30,6 +30,7 @@ body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMac
   <p class="subtitle">Enter password to continue</p>
   
   <div id="password-step">
+    <input type="text" id="devname" placeholder="Your name (e.g. Sarel's iPhone)">
     <input type="password" id="password" placeholder="Password" autofocus>
     <button onclick="checkPassword()">Enter</button>
     <p class="error" id="error">Incorrect password</p>
@@ -71,12 +72,14 @@ fetch('/api/session').then(function(r) {
 
 async function checkPassword() {
   const pw = document.getElementById('password').value;
+  const nameEl = document.getElementById('devname');
+  const name = nameEl ? nameEl.value : '';
   const err = document.getElementById('error');
   try {
     const resp = await fetch('/api/auth/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({password: pw})
+      body: JSON.stringify({password: pw, name: name})
     });
     const data = await resp.json();
     if (data.success) {
@@ -127,8 +130,10 @@ async function loadDevices() {
     if (!d.count) { el.textContent = 'No enrolled devices.'; return; }
     el.innerHTML = d.devices.map(function(dev) {
       var seen = dev.last_seen ? new Date(dev.last_seen * 1000).toLocaleString() : '?';
+      var primary = dev.name || dev.device || 'Unknown device';
+      var secondary = (dev.name && dev.device ? dev.device + ' \u00b7 ' : '') + (dev.label || '?');
       return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #21262d;">'
-        + '<span><strong>' + (dev.device || 'Unknown device') + '</strong> \u00b7 ' + (dev.label || '?') + '<br><span style="color:#586069;">last seen ' + seen + '</span></span>'
+        + '<span><strong>' + primary + '</strong><br><span style="color:#586069;">' + secondary + ' \u00b7 last seen ' + seen + '</span></span>'
         + '<button onclick="revokeDevice(\'' + dev.token + '\')" style="width:auto;padding:6px 10px;background:#5a1d1d;font-size:11px;">Revoke</button>'
         + '</div>';
     }).join('');

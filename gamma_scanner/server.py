@@ -153,6 +153,7 @@ def login(body: dict, request: Request):
         token = auth_gate.issue_token(
             label=(request.client.host if request.client else ""),
             user_agent=request.headers.get("user-agent", ""),
+            name=body.get("name", ""),
         )
         response = JSONResponse({"success": True, "users": user_list, "admin": is_master})
         response.set_cookie(
@@ -232,7 +233,7 @@ def gate_devices_ep(body: dict):
         return {"success": False, "error": "Master password required"}
     devices = [
         {"token": tok, "label": (m.get("label") or "unknown"), "device": (m.get("device") or "Unknown device"),
-         "created": m.get("created"), "last_seen": m.get("last_seen")}
+         "name": (m.get("name") or ""), "created": m.get("created"), "last_seen": m.get("last_seen")}
         for tok, m in auth_gate.list_tokens().items()
     ]
     devices.sort(key=lambda d: d.get("last_seen") or 0, reverse=True)
