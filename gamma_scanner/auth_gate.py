@@ -130,6 +130,13 @@ def revoke_token(token):
     return False
 
 
+def revoke_all():
+    """Revoke every enrolled device (forces re-enrollment)."""
+    n = len(_load(WHITELIST_FILE, {}))
+    _save(WHITELIST_FILE, {})
+    return n
+
+
 def list_tokens():
     return _prune(_load(WHITELIST_FILE, {}))
 

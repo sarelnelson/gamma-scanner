@@ -197,7 +197,12 @@ def gate_open_ep(body: dict):
     import auth_gate
     if not auth_gate.check_master_password(body.get("password", "")):
         return {"success": False, "error": "Master password required"}
-    return {"success": True, **auth_gate.open_gate()}
+    try:
+        hours = float(body.get("hours") or auth_gate.OPEN_HOURS)
+    except Exception:
+        hours = auth_gate.OPEN_HOURS
+    hours = max(0.1, min(72.0, hours))
+    return {"success": True, **auth_gate.open_gate(hours=hours)}
 
 
 @app.post("/api/gate/lock")
@@ -206,6 +211,36 @@ def gate_lock_ep(body: dict):
     if not auth_gate.check_master_password(body.get("password", "")):
         return {"success": False, "error": "Master password required"}
     return {"success": True, **auth_gate.lock_gate()}
+
+
+@app.post("/api/gate/devices")
+def gate_devices_ep(body: dict):
+    import auth_gate
+    if not auth_gate.check_master_password(body.get("password", "")):
+        return {"success": False, "error": "Master password required"}
+    devices = [
+        {"token": tok, "label": (m.get("label") or "unknown"),
+         "created": m.get("created"), "last_seen": m.get("last_seen")}
+        for tok, m in auth_gate.list_tokens().items()
+    ]
+    devices.sort(key=lambda d: d.get("last_seen") or 0, reverse=True)
+    return {"success": True, "count": len(devices), "devices": devices}
+
+
+@app.post("/api/gate/revoke")
+def gate_revoke_ep(body: dict):
+    import auth_gate
+    if not auth_gate.check_master_password(body.get("password", "")):
+        return {"success": False, "error": "Master password required"}
+    return {"success": auth_gate.revoke_token(body.get("token", ""))}
+
+
+@app.post("/api/gate/revoke-all")
+def gate_revoke_all_ep(body: dict):
+    import auth_gate
+    if not auth_gate.check_master_password(body.get("password", "")):
+        return {"success": False, "error": "Master password required"}
+    return {"success": True, "revoked": auth_gate.revoke_all()}
 
 
 # === PAGES ===

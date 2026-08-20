@@ -40,10 +40,20 @@ body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMac
   <details style="margin-top:16px;text-align:left;">
     <summary style="color:#8b949e;font-size:12px;cursor:pointer;">Admin</summary>
     <input type="password" id="master" placeholder="Master password" style="margin-top:10px;">
-    <div style="display:flex;gap:8px;">
-      <button onclick="gate('open')" style="flex:1;">Open gate (3h)</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="open-hours" style="flex:0 0 auto;padding:12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px;">
+        <option value="1">1h</option>
+        <option value="3" selected>3h</option>
+        <option value="24">24h</option>
+      </select>
+      <button onclick="gate('open')" style="flex:1;">Open</button>
       <button onclick="gate('lock')" style="flex:1;background:#30363d;">Lock</button>
     </div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button onclick="loadDevices()" style="flex:1;background:#30363d;">Devices</button>
+      <button onclick="revokeAll()" style="flex:1;background:#5a1d1d;">Revoke all</button>
+    </div>
+    <div id="devices" style="margin-top:10px;font-size:12px;color:#8b949e;"></div>
     <p id="gate-msg" style="color:#8b949e;font-size:12px;margin-top:8px;"></p>
   </details>
 </div>
@@ -82,11 +92,13 @@ async function checkPassword() {
 async function gate(action) {
   const mp = document.getElementById('master').value;
   const msg = document.getElementById('gate-msg');
+  const body = {password: mp};
+  if (action === 'open') body.hours = parseFloat(document.getElementById('open-hours').value);
   try {
     const r = await fetch('/api/gate/' + action, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({password: mp})
+      body: JSON.stringify(body)
     });
     const d = await r.json();
     msg.textContent = d.success
@@ -94,6 +106,48 @@ async function gate(action) {
       : (d.error || 'Failed');
   } catch (e) { msg.textContent = 'Failed'; }
   loadGateStatus();
+}
+
+async function loadDevices() {
+  const mp = document.getElementById('master').value;
+  const el = document.getElementById('devices');
+  try {
+    const r = await fetch('/api/gate/devices', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: mp})
+    });
+    const d = await r.json();
+    if (!d.success) { el.textContent = d.error || 'Failed'; return; }
+    if (!d.count) { el.textContent = 'No enrolled devices.'; return; }
+    el.innerHTML = d.devices.map(function(dev) {
+      var seen = dev.last_seen ? new Date(dev.last_seen * 1000).toLocaleString() : '?';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #21262d;">'
+        + '<span>' + (dev.label || 'unknown') + '<br><span style="color:#586069;">last seen ' + seen + '</span></span>'
+        + '<button onclick="revokeDevice(\'' + dev.token + '\')" style="width:auto;padding:6px 10px;background:#5a1d1d;font-size:11px;">Revoke</button>'
+        + '</div>';
+    }).join('');
+  } catch (e) { el.textContent = 'Failed'; }
+}
+
+async function revokeDevice(token) {
+  const mp = document.getElementById('master').value;
+  await fetch('/api/gate/revoke', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: mp, token: token})
+  });
+  loadDevices();
+}
+
+async function revokeAll() {
+  if (!confirm('Revoke ALL devices? Everyone (including you) will need to re-enroll.')) return;
+  const mp = document.getElementById('master').value;
+  const r = await fetch('/api/gate/revoke-all', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: mp})
+  });
+  const d = await r.json();
+  document.getElementById('gate-msg').textContent = d.success ? ('Revoked ' + d.revoked + ' device(s)') : (d.error || 'Failed');
+  loadDevices();
 }
 
 async function loadGateStatus() {
