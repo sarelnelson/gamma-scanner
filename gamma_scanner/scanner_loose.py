@@ -351,7 +351,7 @@ def screen_stocks():
     return candidates
 
 
-def score_and_select_options(candidates):
+def score_and_select_options(candidates, max_contract_cost=500):
     """Score candidates, find best option contracts."""
     scored = []
 
@@ -406,7 +406,7 @@ def score_and_select_options(candidates):
             # - Max $500 per contract
             # - Try ATM first (closest to stock price)
             # - If ATM > $500: fall back to OTM, but only if score >= 75
-            MAX_CONTRACT_COST = 500
+            MAX_CONTRACT_COST = max_contract_cost
             OTM_MIN_SCORE = 75
             min_oi = 50 if USE_ALPACA_DATA else 500
             
@@ -1098,10 +1098,20 @@ def record_study_picks():
         except Exception:
             continue
     if study:
+        # Score study candidates with a relaxed cost cap (their ATM options exceed the
+        # $500 trade cap), so study picks carry a full score + option — comparable to
+        # traded picks — for apples-to-apples analysis. They are still never traded.
+        try:
+            scored = score_and_select_options(study, max_contract_cost=1_000_000)
+            for s in scored:
+                s["tradeable"] = False
+        except Exception as e:
+            log(f"  study scoring error: {e}", "WARN")
+            scored = study  # fall back to unscored setups
         try:
             from pick_log import record_picks
-            record_picks(study, mode="study")
-            log(f"  Study picks logged (>$150, NOT traded): {len(study)}")
+            record_picks(scored, mode="study")
+            log(f"  Study picks logged (>$150, NOT traded): {len(scored)}")
         except Exception as e:
             log(f"  study record error: {e}", "WARN")
 
