@@ -34,10 +34,18 @@ body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMac
     <button onclick="checkPassword()">Enter</button>
     <p class="error" id="error">Incorrect password</p>
   </div>
-  
-  <div class="user-select" id="user-select">
-    <p style="color:#8b949e;font-size:13px;margin-bottom:16px;">Select account:</p>
-  </div>
+
+  <div id="gate-info" style="color:#8b949e;font-size:12px;margin-top:14px;"></div>
+
+  <details style="margin-top:16px;text-align:left;">
+    <summary style="color:#8b949e;font-size:12px;cursor:pointer;">Admin</summary>
+    <input type="password" id="master" placeholder="Master password" style="margin-top:10px;">
+    <div style="display:flex;gap:8px;">
+      <button onclick="gate('open')" style="flex:1;">Open gate (3h)</button>
+      <button onclick="gate('lock')" style="flex:1;background:#30363d;">Lock</button>
+    </div>
+    <p id="gate-msg" style="color:#8b949e;font-size:12px;margin-top:8px;"></p>
+  </details>
 </div>
 
 <script>
@@ -47,31 +55,59 @@ document.getElementById('password').addEventListener('keypress', function(e) {
 
 async function checkPassword() {
   const pw = document.getElementById('password').value;
-  const resp = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({password: pw})
-  });
-  const data = await resp.json();
-  if (data.success) {
-    localStorage.setItem('gamma_token', data.token);
-    localStorage.setItem('gamma_user', 'scanner');
-    window.location.href = '/dashboard';
-  } else {
-    document.getElementById('error').style.display = 'block';
+  const err = document.getElementById('error');
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw})
+    });
+    const data = await resp.json();
+    if (data.success) {
+      localStorage.setItem('gamma_user', 'scanner');
+      if (data.token) localStorage.setItem('gamma_token', data.token);
+      window.location.href = '/dashboard';
+      return;
+    }
+    err.textContent = (data.reason === 'locked')
+      ? (data.message || 'Access is locked. Ask the admin to open the gate.')
+      : 'Incorrect password';
+    err.style.display = 'block';
+  } catch (e) {
+    err.textContent = 'Login failed — try again';
+    err.style.display = 'block';
   }
 }
 
-function selectUser(userId) {
-  localStorage.setItem('gamma_user', userId);
-  window.location.href = '/dashboard';
+async function gate(action) {
+  const mp = document.getElementById('master').value;
+  const msg = document.getElementById('gate-msg');
+  try {
+    const r = await fetch('/api/gate/' + action, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: mp})
+    });
+    const d = await r.json();
+    msg.textContent = d.success
+      ? (d.open ? ('Gate OPEN — ' + Math.round(d.seconds_remaining/60) + ' min left') : 'Gate LOCKED')
+      : (d.error || 'Failed');
+  } catch (e) { msg.textContent = 'Failed'; }
+  loadGateStatus();
 }
 
-// If already logged in, go to dashboard
-const token = localStorage.getItem('gamma_token');
-if (token) {
-  window.location.href = '/dashboard';
+async function loadGateStatus() {
+  try {
+    const r = await fetch('/api/gate/status');
+    const d = await r.json();
+    const el = document.getElementById('gate-info');
+    if (!d.enabled) { el.textContent = ''; return; }
+    el.textContent = d.open
+      ? ('🔓 Gate open — ' + Math.round(d.seconds_remaining/60) + ' min left (new devices can join)')
+      : '🔒 Locked — existing devices only';
+  } catch (e) {}
 }
+loadGateStatus();
 </script>
 </body>
 </html>

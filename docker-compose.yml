@@ -13,6 +13,11 @@ services:
       - PORT=8081
       - GAMMA_DATA_DIR=/app/data
       - LIVE_EXECUTION=true
+      # Login gate (values supplied via untracked .env; gate stays off until enabled)
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
+      - ADMIN_MASTER_PASSWORD=${ADMIN_MASTER_PASSWORD:-}
+      - LOGIN_GATE_ENABLED=${LOGIN_GATE_ENABLED:-false}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
     volumes:
       - gamma_data:/app/data
     restart: unless-stopped

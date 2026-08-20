@@ -21,6 +21,32 @@ from starlette.responses import PlainTextResponse, Response
 AUTH_COOKIE_NAME = "gamma_session"
 AUTH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60
 
+# ---- Whitelist gate middleware (enforced ONLY when LOGIN_GATE_ENABLED=true) ----
+# Exemptions prevent the loops/lockouts that broke the previous attempt:
+#  - /static, login page ("/"), auth + gate APIs stay open so the login page can load
+#    and the admin can always open/lock the gate.
+#  - /api/last-scan stays open so the Docker healthcheck keeps the container healthy.
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "").lower() == "true"
+_GATE_EXEMPT_PREFIXES = ("/static", "/api/auth", "/api/gate", "/favicon")
+_GATE_EXEMPT_PATHS = {"/", "/api/last-scan"}
+
+
+@app.middleware("http")
+async def whitelist_gate(request: Request, call_next):
+    import auth_gate
+    if not auth_gate.gate_enabled():
+        return await call_next(request)
+    path = request.url.path
+    if path in _GATE_EXEMPT_PATHS or path.startswith(_GATE_EXEMPT_PREFIXES):
+        return await call_next(request)
+    if auth_gate.verify_token(request.cookies.get(auth_gate.COOKIE_NAME)):
+        return await call_next(request)
+    from starlette.responses import JSONResponse, RedirectResponse
+    if path.startswith("/api/"):
+        return JSONResponse({"error": "not_whitelisted"}, status_code=401)
+    # Pages: redirect to the login page (which is exempt) — never a loop back to a gated page
+    return RedirectResponse(url="/", status_code=302)
+
 # Config
 from config import SCANNER_DIR, DATA_DIR, ALPACA_API_KEY, ALPACA_SECRET_KEY
 ALPACA_DATA_URL = "https://data.alpaca.markets/v2"
@@ -96,25 +122,45 @@ def _apply_broker_creds(user_id):
 
 @app.post("/api/auth/login")
 def login(body: dict, request: Request):
-    """Verify password and set session cookie."""
+    """Password login.
+
+    Gate OFF (legacy): the single shared password from users.json.
+    Gate ON: master password always works and enrolls the device; the dashboard
+    password enrolls only while the gate is OPEN. A signed whitelist cookie is set.
+    """
+    import auth_gate
+    from starlette.responses import JSONResponse
     users_config = load_users()
-    if body.get("password") == users_config.get("password"):
-        token = secrets.token_hex(16)
-        _active_tokens.add(token)
-        
-        user_list = [{"id": uid, "name": u["name"]} for uid, u in users_config.get("users", {}).items()]
-        
-        from starlette.responses import JSONResponse
-        response = JSONResponse({"success": True, "token": token, "users": user_list})
+    pw = body.get("password", "")
+    user_list = [{"id": uid, "name": u["name"]} for uid, u in users_config.get("users", {}).items()]
+
+    if not auth_gate.gate_enabled():
+        if pw == users_config.get("password"):
+            token = secrets.token_hex(16)
+            _active_tokens.add(token)
+            response = JSONResponse({"success": True, "token": token, "users": user_list})
+            response.set_cookie(
+                key=AUTH_COOKIE_NAME, value="authenticated",
+                max_age=AUTH_COOKIE_MAX_AGE, httponly=True, samesite="lax",
+            )
+            return response
+        return {"success": False}
+
+    # Gate enabled: two-password model
+    is_master = auth_gate.check_master_password(pw)
+    is_dash = auth_gate.check_dashboard_password(pw)
+    if is_master or (is_dash and auth_gate.gate_is_open()):
+        token = auth_gate.issue_token(label=(request.client.host if request.client else ""))
+        response = JSONResponse({"success": True, "users": user_list, "admin": is_master})
         response.set_cookie(
-            key=AUTH_COOKIE_NAME,
-            value="authenticated",
-            max_age=AUTH_COOKIE_MAX_AGE,
-            httponly=True,
-            samesite="lax",
+            key=auth_gate.COOKIE_NAME, value=token,
+            max_age=auth_gate.COOKIE_MAX_AGE, httponly=True, samesite="lax", secure=COOKIE_SECURE,
         )
         return response
-    return {"success": False}
+    if is_dash and not auth_gate.gate_is_open():
+        return {"success": False, "reason": "locked",
+                "message": "Access is locked. Ask the admin to open the gate."}
+    return {"success": False, "reason": "bad_password"}
 
 
 # === SECURITY ADMIN ===
@@ -137,6 +183,29 @@ def admin_gate_status():
 def logout(token: str = ""):
     _active_tokens.discard(token)
     return {"success": True}
+
+
+# ---- Gate control (master password) ----
+@app.get("/api/gate/status")
+def gate_status_ep():
+    import auth_gate
+    return {"enabled": auth_gate.gate_enabled(), **auth_gate.gate_status()}
+
+
+@app.post("/api/gate/open")
+def gate_open_ep(body: dict):
+    import auth_gate
+    if not auth_gate.check_master_password(body.get("password", "")):
+        return {"success": False, "error": "Master password required"}
+    return {"success": True, **auth_gate.open_gate()}
+
+
+@app.post("/api/gate/lock")
+def gate_lock_ep(body: dict):
+    import auth_gate
+    if not auth_gate.check_master_password(body.get("password", "")):
+        return {"success": False, "error": "Master password required"}
+    return {"success": True, **auth_gate.lock_gate()}
 
 
 # === PAGES ===
